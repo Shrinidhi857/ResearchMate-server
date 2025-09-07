@@ -1,0 +1,9 @@
+# Ignore environment files
+.env
+
+# Ignore Python cache files
+__pycache__/
+service/__pycache__/
+
+# (Optional) Ignore all pycache everywhere in the project
+**/__pycache__/
