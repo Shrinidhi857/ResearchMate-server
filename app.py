@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, request, jsonify, session, redirect, url_for
+from flask import Flask, request, jsonify, session, redirect, url_for ,Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
@@ -11,6 +11,20 @@ import os
 import re
 import uuid
 from functools import wraps
+import time, json
+from flask import Response, jsonify, request
+import json
+
+from service.analysis_tool import (
+    semantic_search,
+    extract_entities,
+    train_sentence_classifier,
+    predict_sentence_labels,
+    extract_relations_from_sentences,
+    detect_contradictions,
+    build_citation_graph,
+    analyze_graph,
+)
 
 #imports 
 from service.web_searcher import getUserInput
@@ -572,7 +586,99 @@ def create_app():
         
         return jsonify({"message": "Success", "answer": answer}), 200
 
+    
 
+    @app.route('/api/nlppipe/<doc_id>', methods=['GET'])
+    @token_required
+    def analyse_pipeline(current_user, doc_id):
+        # === Fetch the document for the authenticated user ===
+        doc = Document.query.filter_by(doc_id=doc_id, user_id=current_user.id).first()
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+
+        # === Extract sentences from document content ===
+        sentences = [s.strip() for s in doc.content.split('.') if s.strip()]  # basic splitting
+
+        def generate():
+            try:
+                # === PHASE 1: Semantic Search ===
+                yield "data: " + json.dumps({"phase": 1, "status": "start", "message": "Running semantic search..."}) + "\n\n"
+
+                limitation_queries = [
+                    "a limitation of this study is", "we were unable to", "a weakness of our approach"
+                ]
+                future_queries = [
+                    "future research should focus on", "the next step is to", "further investigation is needed"
+                ]
+                queries = limitation_queries + future_queries
+
+                semres = semantic_search(sentences, queries, top_k=10, threshold=0.6)
+                limitation_sentences = list({s for q, lst in semres.items() for s, _ in lst})
+                yield "data: " + json.dumps({
+                    "phase": 1, "status": "done",
+                    "type": "limitations",
+                    "data": limitation_sentences,
+                    "count": len(limitation_sentences)
+                }) + "\n\n"
+
+                # === PHASE 2: Entity Extraction ===
+                yield "data: " + json.dumps({"phase": 2, "status": "start", "message": "Extracting entities..."}) + "\n\n"
+                ents = extract_entities(limitation_sentences)
+                yield "data: " + json.dumps({
+                    "phase": 2, "status": "done", "type": "entities", "data": ents
+                }) + "\n\n"
+
+                # === PHASE 3: Classifier Training ===
+                yield "data: " + json.dumps({"phase": 3, "status": "start", "message": "Training classifier..."}) + "\n\n"
+                clf_obj = train_sentence_classifier(sentences)
+                yield "data: " + json.dumps({
+                    "phase": 3, "status": "done",
+                    "accuracy": clf_obj.get("accuracy"),
+                    "report": clf_obj.get("report")
+                }) + "\n\n"
+
+                # === PHASE 4: Prediction ===
+                preds = predict_sentence_labels(sentences, clf_obj)
+                yield "data: " + json.dumps({
+                    "phase": 4, "status": "done", "type": "predictions", "data": preds
+                }) + "\n\n"
+
+                # === PHASE 5: Relation Extraction ===
+                yield "data: " + json.dumps({"phase": 5, "status": "start", "message": "Extracting relations..."}) + "\n\n"
+                relations = extract_relations_from_sentences(sentences)
+                yield "data: " + json.dumps({
+                    "phase": 5, "status": "done", "type": "relations", "data": relations
+                }) + "\n\n"
+
+                # === PHASE 6: Contradiction Detection ===
+                yield "data: " + json.dumps({"phase": 6, "status": "start", "message": "Detecting contradictions..."}) + "\n\n"
+                contradictions = detect_contradictions(relations, min_support=1)
+                yield "data: " + json.dumps({
+                    "phase": 6, "status": "done", "type": "contradictions", "data": contradictions
+                }) + "\n\n"
+
+                # === PHASE 7: Graph Analysis ===
+                yield "data: " + json.dumps({"phase": 7, "status": "start", "message": "Building citation graph..."}) + "\n\n"
+                metadata_list = [
+                    {'title': 'Paper A', 'authors': [{'name':'Alice'}], 'references': [{'raw': 'Paper B by Bob'}]},
+                    {'title': 'Paper B', 'authors': [{'name':'Bob'}], 'references': [{'raw': 'nothing relevant'}]}
+                ]
+                G = build_citation_graph(metadata_list)
+                analysis = analyze_graph(G)
+                yield "data: " + json.dumps({
+                    "phase": 7, "status": "done", "type": "graph", "data": analysis
+                }) + "\n\n"
+
+                # === DONE ===
+                yield "data: " + json.dumps({
+                    "phase": 8, "status": "complete", "message": "✅ Pipeline finished successfully!"
+                }) + "\n\n"
+
+            except Exception as e:
+                yield "data: " + json.dumps({"phase": "error", "error": str(e)}) + "\n\n"
+
+        # Stream response to frontend
+        return Response(generate(), mimetype='text/event-stream')
 
 
     # Error handlers

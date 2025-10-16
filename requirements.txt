@@ -1,3 +1,4 @@
+# --- Flask and Core Backend ---
 Flask==2.3.3
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
@@ -8,32 +9,43 @@ Authlib==1.2.1
 PyJWT==2.8.0
 python-dotenv==1.0.0
 requests==2.31.0
-fastapi 
-uvicorn 
-celery 
-redis 
-sqlalchemy 
-pydantic
-langchain 
-langchain-community
+
+# --- Async / Background Tasks ---
+fastapi
+uvicorn
+celery
+redis
+
+# --- ORM & Data ---
+sqlalchemy
 pgvector
-google-generativeai  # if using Gemini
+pandas
+numpy
+scikit-learn
+umap
+networkx
+
+# --- NLP & LLM Tools ---
+langchain
+langchain-core
+langchain-community
+langchain-chroma
+langchain-google-genai
+google-generativeai
+chromadb
+transformers
+tiktoken
+torch
+spacy==3.4.4
+#scispacy==0.5.1
+#https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_core_sci_sm-0.5.1.tar.gz
+nltk
+
+# --- File Parsing & Utilities ---
 pymupdf
 unstructured[all]
 httpx
 PyPDF2==3.0.1
-langchain-google-genai 
-google-generativeai
-langchain
-langchain-community
-langchain-core
-langchain-google-genai
-chromadb
-google-generativeai
-beautifulsoup4
-tiktoken
-langchain_chroma
-pandas
-numpy
-umap
-scikit-learn
+lxml
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+

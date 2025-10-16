@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_name VARCHAR(80),
     google_id VARCHAR(100) UNIQUE,
     is_verified BOOLEAN DEFAULT FALSE,
+    tokens BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -28,3 +29,4 @@ CREATE TABLE documents (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
 );
+

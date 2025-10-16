@@ -7,3 +7,4 @@ service/__pycache__/
 
 # (Optional) Ignore all pycache everywhere in the project
 **/__pycache__/
+venv
