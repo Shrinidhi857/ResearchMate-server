@@ -5,6 +5,7 @@ from flask_migrate import Migrate
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from authlib.integrations.flask_client import OAuth
+from tqdm import tqdm
 
 from datetime import datetime, timedelta, timezone
 import jwt
@@ -26,6 +27,13 @@ from service.analysis_tool import (
     build_citation_graph,
     analyze_graph,
 )
+
+from service.bert_handler import BERTAnalyzer
+
+model_path = r"bert-finetuned-model\bert-finetuned-model"
+analyzer = BERTAnalyzer(model_path)
+analysis_cache = {}
+
 
 #imports 
 from service.web_searcher import getUserInput
@@ -58,6 +66,8 @@ def create_app():
     migrate = Migrate(app, db)
     CORS(app, supports_credentials=True)
     oauth = OAuth(app)
+    
+    
 
     # Google OAuth
     google =oauth.register(
@@ -597,9 +607,31 @@ def create_app():
             "created_at": d.created_at.isoformat()
         } for d in docs]
 
+    def extract_sentences_simple(text):
+        """
+        Simple sentence extraction without NLTK.
+        """
+        if not text or not isinstance(text, str):
+            return []
+        
+        # Clean text
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        # Split on sentence boundaries
+        # This regex looks for: period/question/exclamation followed by space and capital letter
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+        
+        cleaned = []
+        for sent in sentences:
+            sent = sent.strip()
+            # Filter short or noisy sentences
+            if len(sent.split()) >= 5 and re.search(r'[a-zA-Z]', sent):
+                cleaned.append(sent)
+        
+        return cleaned
   
 
-    @app.route('/api/nlp', methods=['POST'])
+    """ @app.route('/api/nlp', methods=['POST'])
     @token_required
     def analyse_pipeline(current_user):
         data = request.get_json()
@@ -608,71 +640,127 @@ def create_app():
 
         docs = get_documents(current_user)
         selected_ids = {d["doc_id"] for d in data}
-        print("documents:", selected_ids)
         docs = [d for d in docs if d["doc_id"] in selected_ids]
 
         if not docs:
             raise ValueError("No matching documents found")
 
-        sentences = [d["content"] for d in docs]
+        # Each element in `sentences` = list of sentences for one document
+        sentences = [extract_sentences_simple(d["content"]) for d in docs]
 
         def generate():
             try:
-                # === PHASE 1: Semantic Search ===
-                yield f"data: {json.dumps({'phase': 1, 'status': 'start', 'message': 'Running semantic search...'})}\n\n"
-                time.sleep(1)
+                yield f"data: {json.dumps({'phase': 1, 'status': 'start', 'message': '🔍 Running BERT-based analysis...'})}\n\n"
+                time.sleep(0.5)
 
-                limitation_queries = ["a limitation of this study is", "we were unable to", "a weakness of our approach"]
-                future_queries = ["future research should focus on", "the next step is to", "further investigation is needed"]
-                queries = limitation_queries + future_queries
+                # === PHASE 1: Prediction for each document ===
+                all_results = []
 
-                semres = semantic_search(sentences, queries, top_k=10, threshold=0.6)
-                yield f"data: {json.dumps({'phase': 1, 'status': 'done', 'message': '=== Semantic search candidates ==='})}\n\n"
+                for i, doc_sentences in enumerate(sentences):
+                    yield f"data: {json.dumps({'phase': 1, 'status': 'processing', 'doc_index': i, 'message': f'Analysing document {i+1} ({len(doc_sentences)} sentences)...'})}\n\n"
+                    time.sleep(0.2)
 
-                for q, items in semres.items():
-                    yield f"data: {json.dumps({'phase': 1, 'query': q, 'message': 'Query results:'})}\n\n"
-                    for s, score in items:
-                        yield f"data: {json.dumps({'phase': 1, 'query': q, 'score': score, 'sentence': s})}\n\n"
+                    # Run predictions for this document’s sentence list
+                    predictions = analyzer.predict_batch(doc_sentences)
 
-                # === PHASE 2: Entity Extraction ===
-                candidate_sents = list({s for items in semres.values() for s, _ in items})
-                ents = extract_entities(candidate_sents)
-                yield f"data: {json.dumps({'phase': 2, 'status': 'done', 'message': '=== Entities extracted ===', 'entities': ents})}\n\n"
+                    # Keep the results grouped
+                    all_results.append(predictions)
 
-                # === PHASE 3: Classifier Training ===
-                clf_obj = train_sentence_classifier(sentences)
-                yield f"data: {json.dumps({'phase': 3, 'status': 'done', 'message': '=== Classifier report ===', 'report': clf_obj['report'], 'accuracy': clf_obj['accuracy']})}\n\n"
+                    # Stream back predictions for each sentence in this document
+                    for p in predictions:
+                        yield f"data: {json.dumps({'phase': 1, 'doc_index': i, 'sentence': p['text'], 'predicted_label': p['predicted_label'], 'confidence': p['confidence']})}\n\n"
 
-                # === PHASE 4: Prediction ===
-                preds = predict_sentence_labels(sentences, clf_obj)
-                for s, p in zip(sentences, preds):
-                    yield f"data: {json.dumps({'phase': 4, 'sentence': s, 'predicted_label': p})}\n\n"
-
-                # === PHASE 5: Relation Extraction ===
-                relations = extract_relations_from_sentences(sentences)
-                for r in relations:
-                    yield f"data: {json.dumps({'phase': 5, 'relation': r})}\n\n"
-
-                # === PHASE 6: Contradiction Detection ===
-                contradictions = detect_contradictions(relations, min_support=1)
-                for c in contradictions:
-                    yield f"data: {json.dumps({'phase': 6, 'pair': c['pair'], 'relations': c['relations']})}\n\n"
-
-                # === DONE ===
-                yield f"data: {json.dumps({'phase': 7, 'status': 'complete', 'message': '✅ Pipeline finished successfully!'})}\n\n"
+                # === DONE: Send final grouped results ===
+                yield f"data: {json.dumps({'phase': 2, 'status': 'done', 'message': '✅ All documents processed successfully', 'results': all_results})}\n\n"
 
             except Exception as e:
                 yield f"data: {json.dumps({'phase': 'error', 'error': str(e)})}\n\n"
 
-        # Build response
+        # Stream back to frontend
         response = Response(generate(), mimetype='text/event-stream')
         response.headers['Cache-Control'] = 'no-cache'
         response.headers['Connection'] = 'keep-alive'
         response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['X-Accel-Buffering'] = 'no'  # prevent buffering in nginx, etc.
+        response.headers['X-Accel-Buffering'] = 'no'  # Disable buffering in nginx/gunicorn
         return response
+ """
+ 
+    @app.route('/api/nlp', methods=['POST'])
+    @token_required
+    def start_nlp_analysis(current_user):
+        """Start analysis and store session ID"""
+        data = request.get_json()
+        if not data or len(data) == 0:
+            return jsonify({"message": "No document selected"}), 400
 
-    
+        # Generate unique session ID
+        session_id = str(uuid.uuid4())
+        
+        # ✅ FIX: Use current_user.id instead of current_user['id']
+        analysis_cache[session_id] = {
+            'user_id': current_user.id,  # ✅ Changed from current_user['id']
+            'documents': data,
+            'timestamp': time.time()
+        }
+        
+        return jsonify({"session_id": session_id}), 200
+
+
+    @app.route('/api/nlp/stream/<session_id>', methods=['GET'])
+    @token_required
+    def stream_nlp_analysis(current_user, session_id):
+        """Stream analysis results via SSE"""
+        # Retrieve cached data
+        cache_data = analysis_cache.get(session_id)
+        
+        if not cache_data or cache_data['user_id'] != current_user['id']:
+            return jsonify({"error": "Invalid session"}), 403
+        
+        data = cache_data['documents']
+        docs = get_documents(current_user)
+        selected_ids = {d["doc_id"] for d in data}
+        docs = [d for d in docs if d["doc_id"] in selected_ids]
+
+        if not docs:
+            raise ValueError("No matching documents found")
+
+        sentences = [extract_sentences_simple(d["content"]) for d in docs]
+
+        def generate():
+            try:
+                yield f"data: {json.dumps({'phase': 1, 'status': 'start', 'message': '🔍 Running BERT-based analysis...'})}\n\n"
+                yield ''  # Force flush
+                time.sleep(0.5)
+
+                all_results = []
+
+                for i, doc_sentences in enumerate(sentences):
+                    yield f"data: {json.dumps({'phase': 1, 'status': 'processing', 'doc_index': i, 'message': f'Analysing document {i+1} ({len(doc_sentences)} sentences)...'})}\n\n"
+                    yield ''  # Force flush
+                    time.sleep(0.2)
+
+                    predictions = analyzer.predict_batch(doc_sentences)
+                    all_results.append(predictions)
+
+                    for p in predictions:
+                        yield f"data: {json.dumps({'phase': 1, 'doc_index': i, 'sentence': p['text'], 'predicted_label': p['predicted_label'], 'confidence': p['confidence']})}\n\n"
+                        yield ''  # Force flush
+
+                yield f"data: {json.dumps({'phase': 2, 'status': 'done', 'message': '✅ All documents processed successfully', 'results': all_results})}\n\n"
+                yield ''  # Force flush
+                
+                # Cleanup session
+                del analysis_cache[session_id]
+
+            except Exception as e:
+                yield f"data: {json.dumps({'phase': 'error', 'error': str(e)})}\n\n"
+                yield ''
+
+        response = Response(generate(), mimetype='text/event-stream')
+        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['Connection'] = 'keep-alive'
+        response.headers['X-Accel-Buffering'] = 'no'
+        return response
     
     @app.route('/api/test', methods=['GET'])
     def test_stream():
