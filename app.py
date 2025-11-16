@@ -6,7 +6,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from authlib.integrations.flask_client import OAuth
 from tqdm import tqdm
-
+from gemma2.classifier import summarize_research_paper
 from datetime import datetime, timedelta, timezone
 import jwt
 import os
@@ -16,30 +16,19 @@ from functools import wraps
 import time, json
 from flask import Response, jsonify, request
 import json
+from service.auto_site import auto_cite_paragraph
 
-from service.analysis_tool import (
-    semantic_search,
-    extract_entities,
-    train_sentence_classifier,
-    predict_sentence_labels,
-    extract_relations_from_sentences,
-    detect_contradictions,
-    build_citation_graph,
-    analyze_graph,
-)
 
-from service.bert_handler import BERTAnalyzer
+from gemma2.ieee_reference import generate_ieee_reference_for_doc
 
-model_path = r"bert-finetuned-model\bert-finetuned-model"
-analyzer = BERTAnalyzer(model_path)
 analysis_cache = {}
 
 
 #imports 
 from service.web_searcher import getUserInput
 from service.web_scraper import researchPipeline
-from service.raptor import RaptorPipeline
-from service.raptor_middleman import asking_llm
+from rag.raptor import RaptorPipeline
+from rag.raptor_middleman import asking_llm
 from models import db, User, UserSession, Document
 
 
@@ -136,6 +125,8 @@ def create_app():
     def health_check():
         return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
+
+#Authentication handling -------------------------------------------------------------------------------------------------------------------------------------------
     @app.route('/auth/register', methods=['POST'])
     def register():
         data = request.get_json()
@@ -318,6 +309,8 @@ def create_app():
     @token_required
     def get_profile(current_user):
         return jsonify({'user': current_user.to_dict()}), 200
+    
+    
 
     @app.route('/auth/profile', methods=['PUT'])
     @token_required
@@ -378,6 +371,20 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': 'Password change failed'}), 500
+        
+#handling user data---------------------------------------------------------------------------------------------------------------------------------       
+    @app.route("/api/user", methods=["GET"])
+    @token_required
+    def get_user(current_user):
+        try:
+            return jsonify({
+                "id": current_user.id,
+                "email": current_user.email,
+                "first_name": current_user.first_name if hasattr(current_user, "first_name") else None,
+                "last_name": current_user.last_name if hasattr(current_user, "last_name") else None
+            }), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     # Protected route example
     @app.route('/api/protected', methods=['GET'])
@@ -389,7 +396,7 @@ def create_app():
             'timestamp': datetime.utcnow().isoformat()
         }), 200
 
-
+#scraper handling-------------------------------------------------------------------------------------------------------------------------------
     @app.route('/api/getlinks', methods=['POST'])
     @token_required
     def askai_route(current_user):
@@ -440,7 +447,7 @@ def create_app():
 
 
 
-
+#document handling---------------------------------------------------------------------------------------------------------------------------------------------------------------
     @app.route('/api/documents', methods=['POST'])
     @token_required
     def add_document(current_user):
@@ -511,9 +518,6 @@ def create_app():
         db.session.commit()
         return jsonify({"message": "Document updated successfully"}), 200
     
-    
-
-
     # Delete document
     @app.route('/api/documents/<doc_id>', methods=['DELETE'])
     @token_required
@@ -544,21 +548,11 @@ def create_app():
 
         
         
-        
-    @app.route("/api/user", methods=["GET"])
-    @token_required
-    def get_user(current_user):
-        try:
-            return jsonify({
-                "id": current_user.id,
-                "email": current_user.email,
-                "first_name": current_user.first_name if hasattr(current_user, "first_name") else None,
-                "last_name": current_user.last_name if hasattr(current_user, "last_name") else None
-            }), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
+       
     
+
+
+#RAG handling --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
     @app.route('/api/analyse', methods=['POST'])
     @token_required
     def raptor_analysis(current_user):
@@ -575,9 +569,6 @@ def create_app():
             return jsonify({"message": str(e)}), 500
 
         return jsonify({"message": "Document successfully Analysed"}), 200
-
-
-
 
     @app.route('/api/ask', methods=['POST'])
     @token_required
@@ -602,165 +593,69 @@ def create_app():
         Doc = Document()
         docs = Doc.query.filter_by(user_id=current_user.id).all()
         return [{
-            "doc_id": str(d.doc_id),   # ✅ convert UUID to string
+            "doc_id": str(d.doc_id),   
             "content": d.content,
             "created_at": d.created_at.isoformat()
         } for d in docs]
 
-    def extract_sentences_simple(text):
+
+
+# Ai features -----------------------------------------------------------------------------------------------------------------------------------
+    @app.route('/api/summarize', methods=['POST'])
+    def summarize_api():
         """
-        Simple sentence extraction without NLTK.
+        API endpoint to summarize research paper text into structured JSON
         """
-        if not text or not isinstance(text, str):
-            return []
-        
-        # Clean text
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Split on sentence boundaries
-        # This regex looks for: period/question/exclamation followed by space and capital letter
-        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
-        
-        cleaned = []
-        for sent in sentences:
-            sent = sent.strip()
-            # Filter short or noisy sentences
-            if len(sent.split()) >= 5 and re.search(r'[a-zA-Z]', sent):
-                cleaned.append(sent)
-        
-        return cleaned
-  
-
-    """ @app.route('/api/nlp', methods=['POST'])
-    @token_required
-    def analyse_pipeline(current_user):
         data = request.get_json()
-        if not data or len(data) == 0:
-            return jsonify({"message": "No document selected"}), 400
 
-        docs = get_documents(current_user)
-        selected_ids = {d["doc_id"] for d in data}
-        docs = [d for d in docs if d["doc_id"] in selected_ids]
+        if not data or 'text' not in data:
+            return jsonify({"message": "Missing 'text' in request body"}), 400
 
-        if not docs:
-            raise ValueError("No matching documents found")
+        result = summarize_research_paper(data['text'])
 
-        # Each element in `sentences` = list of sentences for one document
-        sentences = [extract_sentences_simple(d["content"]) for d in docs]
+        if result["success"]:
+            return jsonify({"message": "Success", "summary": result["data"]}), 200
+        elif "raw_output" in result:
+            return jsonify({
+                "message": "Model did not return perfect JSON",
+                "raw_output": result["raw_output"]
+            }), 200
+        else:
+            return jsonify({"message": f"Error: {result['error']}"}), 500
 
-        def generate():
-            try:
-                yield f"data: {json.dumps({'phase': 1, 'status': 'start', 'message': '🔍 Running BERT-based analysis...'})}\n\n"
-                time.sleep(0.5)
-
-                # === PHASE 1: Prediction for each document ===
-                all_results = []
-
-                for i, doc_sentences in enumerate(sentences):
-                    yield f"data: {json.dumps({'phase': 1, 'status': 'processing', 'doc_index': i, 'message': f'Analysing document {i+1} ({len(doc_sentences)} sentences)...'})}\n\n"
-                    time.sleep(0.2)
-
-                    # Run predictions for this document’s sentence list
-                    predictions = analyzer.predict_batch(doc_sentences)
-
-                    # Keep the results grouped
-                    all_results.append(predictions)
-
-                    # Stream back predictions for each sentence in this document
-                    for p in predictions:
-                        yield f"data: {json.dumps({'phase': 1, 'doc_index': i, 'sentence': p['text'], 'predicted_label': p['predicted_label'], 'confidence': p['confidence']})}\n\n"
-
-                # === DONE: Send final grouped results ===
-                yield f"data: {json.dumps({'phase': 2, 'status': 'done', 'message': '✅ All documents processed successfully', 'results': all_results})}\n\n"
-
-            except Exception as e:
-                yield f"data: {json.dumps({'phase': 'error', 'error': str(e)})}\n\n"
-
-        # Stream back to frontend
-        response = Response(generate(), mimetype='text/event-stream')
-        response.headers['Cache-Control'] = 'no-cache'
-        response.headers['Connection'] = 'keep-alive'
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['X-Accel-Buffering'] = 'no'  # Disable buffering in nginx/gunicorn
-        return response
- """
- 
-    @app.route('/api/nlp', methods=['POST'])
+    
+    @app.route('/api/generate_reference/<string:doc_id>', methods=['POST'])
     @token_required
-    def start_nlp_analysis(current_user):
-        """Start analysis and store session ID"""
-        data = request.get_json()
-        if not data or len(data) == 0:
-            return jsonify({"message": "No document selected"}), 400
+    def generate_reference(current_user, doc_id):
+        return generate_ieee_reference_for_doc(current_user, doc_id)
 
-        # Generate unique session ID
-        session_id = str(uuid.uuid4())
-        
-        # ✅ FIX: Use current_user.id instead of current_user['id']
-        analysis_cache[session_id] = {
-            'user_id': current_user.id,  # ✅ Changed from current_user['id']
-            'documents': data,
-            'timestamp': time.time()
-        }
-        
-        return jsonify({"session_id": session_id}), 200
-
-
-    @app.route('/api/nlp/stream/<session_id>', methods=['GET'])
+    @app.route('/api/auto_cite', methods=['POST'])
     @token_required
-    def stream_nlp_analysis(current_user, session_id):
-        """Stream analysis results via SSE"""
-        # Retrieve cached data
-        cache_data = analysis_cache.get(session_id)
-        
-        if not cache_data or cache_data['user_id'] != current_user['id']:
-            return jsonify({"error": "Invalid session"}), 403
-        
-        data = cache_data['documents']
-        docs = get_documents(current_user)
-        selected_ids = {d["doc_id"] for d in data}
-        docs = [d for d in docs if d["doc_id"] in selected_ids]
+    def auto_cite_endpoint(current_user):
+        """
+        Endpoint: /api/auto_cite
+        Takes JSON with 'paragraph' and 'references' keys,
+        returns paragraph with citations added.
+        """
+        try:
+            data = request.get_json()
+            paragraph = data.get("paragraph", "")
+            references = data.get("references", {})
 
-        if not docs:
-            raise ValueError("No matching documents found")
+            if not paragraph or not references:
+                return jsonify({"message": "Missing paragraph or references"}), 400
 
-        sentences = [extract_sentences_simple(d["content"]) for d in docs]
+            result = auto_cite_paragraph(paragraph, references)
 
-        def generate():
-            try:
-                yield f"data: {json.dumps({'phase': 1, 'status': 'start', 'message': '🔍 Running BERT-based analysis...'})}\n\n"
-                yield ''  # Force flush
-                time.sleep(0.5)
+            return jsonify({
+                "message": "Success",
+                "cited_paragraph": result
+            }), 200
 
-                all_results = []
-
-                for i, doc_sentences in enumerate(sentences):
-                    yield f"data: {json.dumps({'phase': 1, 'status': 'processing', 'doc_index': i, 'message': f'Analysing document {i+1} ({len(doc_sentences)} sentences)...'})}\n\n"
-                    yield ''  # Force flush
-                    time.sleep(0.2)
-
-                    predictions = analyzer.predict_batch(doc_sentences)
-                    all_results.append(predictions)
-
-                    for p in predictions:
-                        yield f"data: {json.dumps({'phase': 1, 'doc_index': i, 'sentence': p['text'], 'predicted_label': p['predicted_label'], 'confidence': p['confidence']})}\n\n"
-                        yield ''  # Force flush
-
-                yield f"data: {json.dumps({'phase': 2, 'status': 'done', 'message': '✅ All documents processed successfully', 'results': all_results})}\n\n"
-                yield ''  # Force flush
-                
-                # Cleanup session
-                del analysis_cache[session_id]
-
-            except Exception as e:
-                yield f"data: {json.dumps({'phase': 'error', 'error': str(e)})}\n\n"
-                yield ''
-
-        response = Response(generate(), mimetype='text/event-stream')
-        response.headers['Cache-Control'] = 'no-cache'
-        response.headers['Connection'] = 'keep-alive'
-        response.headers['X-Accel-Buffering'] = 'no'
-        return response
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"message": f"Error: {str(e)}"}), 500
     
     @app.route('/api/test', methods=['GET'])
     def test_stream():
