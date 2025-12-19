@@ -7,7 +7,7 @@ def generate_ieee_reference_for_doc(current_user, doc_id):
     Fetch a single document by ID, extract metadata portion,
     and generate IEEE-style reference using Llama 3.
     """
-    from app import Document  # Import inside function to avoid circular import
+    from app.models import Document  # Import inside function to avoid circular import
 
     # Fetch specific document
     doc = Document.query.filter_by(user_id=current_user.id, doc_id=doc_id).first()

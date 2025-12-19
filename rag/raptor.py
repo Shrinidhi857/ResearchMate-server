@@ -190,7 +190,7 @@ def recursive_embed_cluster_summarize(texts, level, n_levels, llm, embd):
 ### FETCH USER DOCUMENTS
 ###########################################
 def get_documents(current_user):
-    from app import Document
+    from app.models import Document
     docs = Document.query.filter_by(user_id=current_user.id).all()
     return [
         {

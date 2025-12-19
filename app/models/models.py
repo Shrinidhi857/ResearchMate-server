@@ -3,8 +3,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import re
 from datetime import datetime, timedelta, timezone
 import uuid
+from app.extensions import db
 
-db = SQLAlchemy()
+
 
 class User(db.Model):
     __tablename__ = 'users'
