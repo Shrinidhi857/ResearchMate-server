@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from app.extensions import db
-from app.models import Project, User, Message, Response, PaperBucket
+from app.models import Project, User, Message, Response, PaperBucket, Paper
 from app.auth.utils import token_required
 from app.services.email_service import send_invitation_email
 
@@ -434,3 +434,55 @@ def remove_paper_from_bucket(current_user, project_id, paper_id):
         return jsonify({"message": "Paper removed from bucket", "paper_ids": paper_bucket.paper_ids}), 200
     else:
         return jsonify({"error": "Paper not found in bucket"}), 404
+
+
+# Paper Content Management
+@projects_bp.route("/projects/<project_id>/paper", methods=["GET"])
+@token_required
+def get_paper(current_user, project_id):
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    # Access paper via relationship
+    paper = project.paper
+    
+    if not paper:
+        return jsonify({"content": ""}), 200
+    
+    return jsonify(paper.to_dict()), 200
+
+
+@projects_bp.route("/projects/<project_id>/paper", methods=["PUT"])
+@token_required
+def update_paper(current_user, project_id):
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    data = request.get_json()
+    content = data.get("content")
+    
+    paper = project.paper
+    
+    if not paper:
+        paper = Paper(project_id=project.id, content=content)
+        db.session.add(paper)
+    else:
+        paper.content = content
+        paper.updated_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    return jsonify({
+        "message": "Paper updated successfully", 
+        "paper": paper.to_dict()
+    }), 200

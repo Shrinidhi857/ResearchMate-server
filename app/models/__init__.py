@@ -5,7 +5,8 @@ from app.models.models import (
     Project, 
     Message, 
     Response, 
-    PaperBucket
+    PaperBucket,
+    Paper
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     'Project',
     'Message',
     'Response',
-    'PaperBucket'
+    'PaperBucket',
+    'Paper'
 ]
