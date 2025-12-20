@@ -202,10 +202,9 @@ def get_documents(current_user):
     ]
 
 
+# FINAL RAPTOR PIPELINE (Ollama + LLaMA3)
 ###########################################
-### FINAL RAPTOR PIPELINE (Ollama + LLaMA3)
-###########################################
-def RaptorPipeline(current_user, data):
+def RaptorPipeline(current_user, data, project_id: str):
 
     docs = get_documents(current_user)
 
@@ -224,6 +223,9 @@ def RaptorPipeline(current_user, data):
         chunk_size=2000,
         chunk_overlap=0
     )
+    # Correcting logic: split_text returns list of strings
+    # But we want to split each document separately or join them with a separator
+    # The original code joined them with "---"
     all_chunks = splitter.split_text("\n---\n".join(doc_texts))
 
     # Initialize OLLAMA
@@ -242,9 +244,31 @@ def RaptorPipeline(current_user, data):
         summaries = raptor_results[lvl][1]["summaries"].tolist()
         final_texts.extend(summaries)
 
-    # Build vector store
-    vectordb = Chroma.from_texts(final_texts, embedding=embd)
+    # Build vector store with persistence
+    persist_directory = os.path.join("db", "vectorstore", project_id)
+    
+    # Ensure directory exists
+    os.makedirs(persist_directory, exist_ok=True)
+    
+    vectordb = Chroma.from_texts(
+        texts=final_texts, 
+        embedding=embd, 
+        persist_directory=persist_directory
+    )
+    
     retriever = vectordb.as_retriever()
-    print("retreving success\n");
+    print(f"Retrieving success for project {project_id}\n")
 
     return retriever
+
+def get_retriever(project_id: str):
+    embd = OllamaEmbeddings(model="nomic-embed-text")
+    persist_directory = os.path.join("db", "vectorstore", project_id)
+    
+    if os.path.exists(persist_directory):
+        vectordb = Chroma(
+            persist_directory=persist_directory, 
+            embedding_function=embd
+        )
+        return vectordb.as_retriever()
+    return None

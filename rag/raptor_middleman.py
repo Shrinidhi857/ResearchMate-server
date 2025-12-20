@@ -11,8 +11,8 @@ def asking_llm(retriever, userQuestion):
     prompt = hub.pull("rlm/rag-prompt")
 
     model = ChatOllama(
-        model="gemma2:2b",
-        temperature=0
+        model="qwen2.5-coder:3b",
+        temperature=2
     )
 
     rag_chain = (

@@ -107,6 +107,8 @@ class Project(db.Model):
     messages = db.relationship("Message", backref="project", cascade="all, delete-orphan")
     responses = db.relationship("Response", backref="project", cascade="all, delete-orphan")
 
+    vector_status = db.Column(db.String(20), default='not_started') # not_started, processing, ready, error
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -114,7 +116,8 @@ class Project(db.Model):
             'project_name': self.project_name,
             'owner_id': self.owner_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'users': [{'id': u.id, 'email': u.email, 'first_name': u.first_name, 'last_name': u.last_name} for u in self.users]
+            'users': [{'id': u.id, 'email': u.email, 'first_name': u.first_name, 'last_name': u.last_name} for u in self.users],
+            'vector_status': self.vector_status
         }
 
 

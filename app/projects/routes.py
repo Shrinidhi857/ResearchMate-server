@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from app.extensions import db
-from app.models import Project, User, Message, Response, PaperBucket, Paper
+from app.models import Project, User, Message, Response, PaperBucket, Paper, Document
 from app.auth.utils import token_required
 from app.services.email_service import send_invitation_email
+from rag.raptor import RaptorPipeline, get_retriever
+from rag.raptor_middleman import asking_llm
 
 projects_bp = Blueprint('projects', __name__)
 
@@ -486,3 +488,102 @@ def update_paper(current_user, project_id):
         "message": "Paper updated successfully", 
         "paper": paper.to_dict()
     }), 200
+
+
+# Vector Status and Context Building
+@projects_bp.route("/projects/<project_id>/vector-status", methods=["GET"])
+@token_required
+def get_vector_status(current_user, project_id):
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    return jsonify({
+        "status": project.vector_status,
+        "is_ready": project.vector_status == "ready"
+    }), 200
+
+
+@projects_bp.route("/projects/<project_id>/build-context", methods=["POST"])
+@token_required
+def build_context(current_user, project_id):
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    # Get paper bucket
+    paper_bucket = PaperBucket.query.filter_by(project_id=project.id).first()
+    if not paper_bucket or not paper_bucket.paper_ids:
+        return jsonify({"error": "No papers in bucket"}), 400
+    
+    # Update status to processing
+    project.vector_status = "processing"
+    db.session.commit()
+    
+    try:
+        # Fetch document contents for the papers in the bucket
+        docs = Document.query.filter(Document.doc_id.in_(paper_bucket.paper_ids)).all()
+        
+        if not docs:
+            project.vector_status = "not_started"
+            db.session.commit()
+            return jsonify({"error": "No documents found for paper IDs"}), 404
+        
+        # Format data for RaptorPipeline
+        data_for_raptor = [{"doc_id": d.doc_id} for d in docs]
+        
+        # Run pipeline
+        RaptorPipeline(current_user, data_for_raptor, project_id)
+        
+        # Update status to ready
+        project.vector_status = "ready"
+        db.session.commit()
+        
+        return jsonify({"message": "Context built successfully", "status": "ready"}), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        project.vector_status = "error"
+        db.session.commit()
+        return jsonify({"error": str(e), "status": "error"}), 500
+
+
+@projects_bp.route("/projects/<project_id>/ask", methods=["POST"])
+@token_required
+def ask_question(current_user, project_id):
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    data = request.get_json()
+    question = data.get("question")
+    
+    if not question:
+        return jsonify({"error": "Question is required"}), 400
+    
+    # Load the retriever for this project
+    retriever = get_retriever(project_id)
+    
+    if retriever is not None:
+        try:
+            answer = asking_llm(retriever, question)
+            return jsonify({"answer": answer}), 200
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": "No context found for this project. Please build context first."}), 404
