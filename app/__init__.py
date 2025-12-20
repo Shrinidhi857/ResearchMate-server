@@ -26,6 +26,8 @@ def create_app(config_class=Config):
     from app.ai.routes import ai_bp
     from app.scraper.routes import scraper_bp
     
+    from app.analyse.routes import analyse_bp
+    
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(users_bp, url_prefix='/api')
     app.register_blueprint(documents_bp, url_prefix='/api')
@@ -33,6 +35,7 @@ def create_app(config_class=Config):
     app.register_blueprint(rag_bp, url_prefix='/api')
     app.register_blueprint(ai_bp, url_prefix='/api')
     app.register_blueprint(scraper_bp, url_prefix='/api')
+    app.register_blueprint(analyse_bp, url_prefix='/api')
     
     # Health check route
     @app.route('/health', methods=['GET'])

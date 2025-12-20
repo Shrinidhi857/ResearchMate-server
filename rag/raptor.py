@@ -204,12 +204,25 @@ def get_documents(current_user):
 
 # FINAL RAPTOR PIPELINE (Ollama + LLaMA3)
 ###########################################
-def RaptorPipeline(current_user, data, project_id: str):
+def RaptorPipeline(current_user, data, project_id: Optional[str] = None):
+
+    # Ensure data is a list
+    if not isinstance(data, list):
+        data = [data]
 
     docs = get_documents(current_user)
+    print(f"DEBUG: Available doc IDs for user {current_user.id}: {[d['doc_id'] for d in docs]}")
 
-    selected_ids = {d["doc_id"] for d in data}
+    # data can be list of dicts with "doc_id" or list of string IDs
+    if data and isinstance(data[0], str):
+        selected_ids = set(data)
+    else:
+        selected_ids = {d.get("doc_id") if isinstance(d, dict) else d for d in data if d}
+    
+    print(f"DEBUG: Selected IDs from request: {selected_ids}")
+
     docs = [d for d in docs if d["doc_id"] in selected_ids]
+    print(f"DEBUG: Documents after filtering: {len(docs)}")
 
     if not docs:
         raise ValueError("No matching documents found.")
@@ -244,22 +257,26 @@ def RaptorPipeline(current_user, data, project_id: str):
         summaries = raptor_results[lvl][1]["summaries"].tolist()
         final_texts.extend(summaries)
 
-    # Build vector store with persistence
-    persist_directory = os.path.join("db", "vectorstore", project_id)
-    
-    # Ensure directory exists
-    os.makedirs(persist_directory, exist_ok=True)
-    
-    vectordb = Chroma.from_texts(
-        texts=final_texts, 
-        embedding=embd, 
-        persist_directory=persist_directory
-    )
-    
-    retriever = vectordb.as_retriever()
-    print(f"Retrieving success for project {project_id}\n")
+    # Build vector store with persistence if project_id is provided
+    if project_id:
+        persist_directory = os.path.join("db", "vectorstore", project_id)
+        os.makedirs(persist_directory, exist_ok=True)
+        
+        vectordb = Chroma.from_texts(
+            texts=final_texts, 
+            embedding=embd, 
+            persist_directory=persist_directory
+        )
+        print(f"Retrieving success for project {project_id}\n")
+    else:
+        # Temporary in-memory vector store
+        vectordb = Chroma.from_texts(
+            texts=final_texts, 
+            embedding=embd
+        )
+        print("Retrieving success for temporary analysis\n")
 
-    return retriever
+    return vectordb.as_retriever()
 
 def get_retriever(project_id: str):
     embd = OllamaEmbeddings(model="nomic-embed-text")
