@@ -16,8 +16,15 @@ class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLMProvider.OLLAMA)
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
-    MAX_COMPILATION_ATTEMPTS = int(os.getenv("MAX_COMPILATION_ATTEMPTS", 20))
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+
+class AgentConfig:
+    """Centralized configuration for agent behavior and limits"""
+    MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "20"))
+    MAX_COMPILATION_ATTEMPTS = int(os.getenv("MAX_COMPILATION_ATTEMPTS", "20"))
+    AGENT_TIMEOUT = int(os.getenv("AGENT_TIMEOUT", "180"))
+    MAX_CONTEXT_LENGTH = int(os.getenv("MAX_CONTEXT_LENGTH", "5000"))
+    MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "2000"))
 
 class MessageType(str, Enum):
     CODE_GENERATED = "CODE_GENERATED"
@@ -34,7 +41,7 @@ class AgentState:
         self.messages: List[Dict[str, Any]] = []
         self.current_code: Optional[str] = None
         self.compilation_attempts: int = 0
-        self.max_attempts: int = Config.MAX_COMPILATION_ATTEMPTS
+        self.max_attempts: int = AgentConfig.MAX_COMPILATION_ATTEMPTS
         self.waiting_for_compilation: bool = False
         
     def add_message(self, role: str, content: str):

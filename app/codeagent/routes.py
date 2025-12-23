@@ -13,7 +13,7 @@ from app.models.models import Project, PaperBucket, Document, Paper
 
 from .llm import OllamaLLM
 from .agent import LaTeXAgent
-from .utils import Config, MessageType, ConnectionManager, AgentState
+from .utils import Config, MessageType, ConnectionManager, AgentState, AgentConfig
 
 # Initialize Flask app context for DB operations
 flask_app = create_app()
@@ -176,7 +176,16 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, project_id: s
             
             if message_type == MessageType.USER_MESSAGE:
                 user_request = data.get("content", "")
+                document_ids = data.get("document_ids", [])  # Optional list of document IDs
                 state.add_message("user", user_request)
+                
+                # Validate document_ids format
+                if document_ids and not isinstance(document_ids, list):
+                    await manager.send_message(client_id, {
+                        "type": "ERROR",
+                        "content": "document_ids must be a list"
+                    })
+                    continue
                 
                 await manager.send_message(client_id, {
                     "type": MessageType.AGENT_THINKING.value,
@@ -184,10 +193,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, project_id: s
                 })
                 
                 try:
-                    # Run the Agentic Loop
+                    # Run the Agentic Loop with optional document filtering
                     result = await asyncio.wait_for(
-                        agent.run(user_request, project_id, fetcher),
-                        timeout=180.0
+                        agent.run(user_request, project_id, fetcher, document_ids if document_ids else None),
+                        timeout=AgentConfig.AGENT_TIMEOUT
                     )
                     
                     if "error" in result:
@@ -196,6 +205,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, project_id: s
 
                     latex_code = result.get("latex")
                     thought = result.get("thought", "Task complete.")
+                    warning = result.get("warning")
+                    
+                    # Notify user if there was a warning (e.g., loop detected)
+                    if warning:
+                        await manager.send_message(client_id, {
+                            "type": "AGENT_THINKING",
+                            "content": f"⚠️ {warning}"
+                        })
                     
                     if latex_code:
                         state.current_code = latex_code

@@ -540,14 +540,17 @@ def build_context(current_user, project_id):
         # Format data for RaptorPipeline
         data_for_raptor = [{"doc_id": d.doc_id} for d in docs]
         
-        # Run pipeline
+        # Always rebuild embeddings (overwrites existing)
         RaptorPipeline(current_user, data_for_raptor, project_id)
         
         # Update status to ready
         project.vector_status = "ready"
         db.session.commit()
         
-        return jsonify({"message": "Context built successfully", "status": "ready"}), 200
+        return jsonify({
+            "message": "Context built successfully", 
+            "status": "ready"
+        }), 200
         
     except Exception as e:
         import traceback
@@ -568,6 +571,18 @@ def ask_question(current_user, project_id):
     if current_user not in project.users:
         return jsonify({"error": "Not allowed"}), 403
     
+    # Check vector status before attempting to answer
+    if project.vector_status != "ready":
+        status_messages = {
+            "not_started": "Context has not been built yet. Please build context first.",
+            "processing": "Context is currently being built. Please wait and try again.",
+            "error": "An error occurred while building context. Please rebuild context."
+        }
+        return jsonify({
+            "error": status_messages.get(project.vector_status, "Context not ready"),
+            "vector_status": project.vector_status
+        }), 400
+    
     data = request.get_json()
     question = data.get("question")
     
@@ -586,4 +601,10 @@ def ask_question(current_user, project_id):
             traceback.print_exc()
             return jsonify({"error": str(e)}), 500
     else:
-        return jsonify({"error": "No context found for this project. Please build context first."}), 404
+        # This shouldn't happen if vector_status is "ready", but handle it anyway
+        project.vector_status = "error"
+        db.session.commit()
+        return jsonify({
+            "error": "No context found for this project despite ready status. Please rebuild context.",
+            "vector_status": "error"
+        }), 404
