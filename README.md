@@ -1,246 +1,171 @@
-# Flask Backend with PostgreSQL and OAuth
+# 🎓 ResearchMate Server
 
-A complete Flask backend application with PostgreSQL database, Google OAuth, and email/password authentication.
+<div align="center">
 
-## Features
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-2.3-000000?style=for-the-badge&logo=flask&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![LangChain](https://img.shields.io/badge/🦜_LangChain-0.1-green?style=for-the-badge)
+![Ollama](https://img.shields.io/badge/Ollama-Run_Locally-orange?style=for-the-badge)
 
-- **Authentication Methods:**
+**An intelligent research management platform powered by AI.**
+*Organize documents, extract insights, and collaborate seamlessly.*
 
-  - Email/password registration and login
-  - Google OAuth 2.0 integration
-  - JWT token-based authentication
-  - Session management
+</div>
 
-- **Database:**
+---
 
-  - PostgreSQL with SQLAlchemy ORM
-  - User management with profiles
-  - Session tracking
-  - Database migrations
+## 📖 About The Project
 
-- **Security:**
-  - Password hashing with Werkzeug
-  - JWT tokens for API authentication
-  - CORS support
-  - Input validation
+**ResearchMate Server** is the robust backend powering the ResearchMate ecosystem. It provides a secure and scalable API for managing research projects, analyzing academic papers, and leveraging Generative AI to synthesize information.
 
-## Prerequisites
+Built with **Flask**, it integrates **Google's Gemini** models and a **RAG (Retrieval-Augmented Generation)** pipeline using **ChromaDB** to offer intelligent context-aware answers from your uploaded documents.
 
-- Docker and Docker Compose
-- Google Cloud Console account (for OAuth)
+## ✨ Key Features
 
-## Setup Instructions
+- **🔐 Secure Authentication**
+  - **Google OAuth 2.0**: Seamless login with Google accounts.
+  - **JWT Auth**: Secure session management for APIs.
+  - **Role-Based Access**: Granular user permissions.
 
-### 1. Clone and Setup
+- **📚 Smart Document Management**
+  - **Upload & Organize**: Support for PDF and other formats.
+  - **Vector Embeddings**: Automatic vectorization of documents for semantic search.
+  - **Project Workspaces**: Group related research into dedicated projects.
 
-```bash
-# Create project directory
-mkdir flask-oauth-backend
-cd flask-oauth-backend
+- **🤖 AI & RAG Engine**
+  - **Local LLM Support**: Powered by **Ollama** running **Qwen 2.5b-coder**.
+  - **Contextual QA**: Ask questions about your PDF library and get cited answers.
+  - **Summarization**: Generate concise summaries of complex papers.
+  - **Feature Extraction**: Identify key methodologies, results, and citations automatically.
 
-# Copy all the provided files to this directory
-# (app.py, requirements.txt, Dockerfile, docker-compose.yml, etc.)
-```
+- **🛠️ Advanced Tools**
+  - **Web Scraper**: Built-in tools to fetch external research data.
+  - **Code Agent**: Experimental capabilities for code analysis and generation.
 
-### 2. Google OAuth Setup
+## ⚙️ Tech Stack
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable Google+ API and Google OAuth2 API
-4. Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client ID"
-5. Set application type to "Web application"
-6. Add authorized redirect URIs:
-   - `http://localhost:5000/auth/google/callback`
-   - Add your production domain when deploying
-7. Copy the Client ID and Client Secret
+| Category | Technologies |
+|----------|--------------|
+| **Framework** | Flask (Python) |
+| **Database** | PostgreSQL (Relational), ChromaDB (Vector) |
+| **AI/ML** | LangChain, Ollama, Qwen 2.5b-coder |
+| **Authentication** | Authlib (OAuth), PyJWT |
+| **Asynchronous** | Celery & Redis (Optional/Planned) |
 
-### 3. Environment Configuration
+## 🚀 Getting Started
 
-```bash
-# Copy environment template
-cp .env.example .env
+Follow these steps to set up the backend locally.
 
-# Edit .env file with your values
-nano .env
-```
+### Prerequisites
 
-Update the `.env` file with:
+- **Python 3.9+**
+- **PostgreSQL** installed and running.
+- **Ollama** installed and running.
+- **Google Cloud Console** account (for OAuth credentials).
 
-- Your Google OAuth credentials
-- Strong secret keys (generate random strings)
-- Database credentials if different
-
-### 4. Run with Docker
+### 1. Clone the Repository
 
 ```bash
-# Build and start services
-docker-compose up --build
-
-# Or run in background
-docker-compose up -d --build
+git clone https://github.com/Shrinidhi857/ResearchMate-server.git
+cd ResearchMate-server
 ```
 
-The application will be available at `http://localhost:5000`
-
-### 5. Database Migrations (if needed)
+### 2. Set Up Virtual Environment
 
 ```bash
-# Access the running container
-docker-compose exec app bash
-
-# Initialize migrations (first time only)
-flask db init
-
-# Create migration
-flask db migrate -m "Initial migration"
-
-# Apply migration
-flask db upgrade
-```
-
-## API Endpoints
-
-### Authentication
-
-- `POST /auth/register` - Register with email/password
-- `POST /auth/login` - Login with email/password
-- `GET /auth/google` - Initiate Google OAuth flow
-- `GET /auth/google/callback` - Google OAuth callback
-- `POST /auth/logout` - Logout (requires auth token)
-
-### User Management
-
-- `GET /auth/profile` - Get user profile (requires auth token)
-- `PUT /auth/profile` - Update user profile (requires auth token)
-- `POST /auth/change-password` - Change password (requires auth token)
-
-### Protected Routes
-
-- `GET /api/protected` - Example protected endpoint
-- `GET /health` - Health check endpoint
-
-## API Usage Examples
-
-### Register User
-
-```bash
-curl -X POST http://localhost:5000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepassword123",
-    "first_name": "John",
-    "last_name": "Doe"
-  }'
-```
-
-### Login
-
-```bash
-curl -X POST http://localhost:5000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepassword123"
-  }'
-```
-
-### Access Protected Route
-
-```bash
-curl -X GET http://localhost:5000/auth/profile \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-### Google OAuth Flow
-
-1. Visit `http://localhost:5000/auth/google` in browser
-2. Complete Google authentication
-3. Get redirected to frontend with token
-
-## Project Structure
-
-```
-flask-oauth-backend/
-├── app.py                 # Main Flask application
-├── requirements.txt       # Python dependencies
-├── Dockerfile            # Container configuration
-├── docker-compose.yml    # Multi-service setup
-├── init.sql              # Database initialization
-├── .env.example          # Environment template
-├── .dockerignore         # Docker ignore file
-└── README.md             # This file
-```
-
-## Development
-
-### Local Development (without Docker)
-
-```bash
-# Create virtual environment
+# Windows
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up PostgreSQL locally and update DATABASE_URL in .env
-
-# Run migrations
-flask db upgrade
-
-# Start development server
-python app.py
+# macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
 ```
 
-### Database Management
+### 3. Install Dependencies
 
 ```bash
-# Create new migration
-docker-compose exec app flask db migrate -m "Description"
-
-# Apply migrations
-docker-compose exec app flask db upgrade
-
-# Access PostgreSQL directly
-docker-compose exec db psql -U postgres -d flaskapp
+pip install -r requirements.txt
 ```
 
-## Production Deployment
+### 4. Setup Ollama
 
-1. **Environment Variables:**
+Ensure Ollama is running and pull the required model:
 
-   - Use strong, random secret keys
-   - Use production PostgreSQL instance
-   - Set proper FRONTEND_URL
-   - Configure Google OAuth with production domains
+```bash
+ollama pull qwen2.5-coder:3b
+```
 
-2. **Security:**
+### 4. Configure Environment
 
-   - Use HTTPS in production
-   - Set proper CORS origins
-   - Use environment-specific secret keys
-   - Consider rate limiting
+Create a `.env` file in the root directory. You can copy the example if available or use the template below:
 
-3. **Database:**
-   - Use managed PostgreSQL service
-   - Set up proper backups
-   - Configure connection pooling
+```bash
+# Security
+SECRET_KEY=your_super_secret_key
+JWT_SECRET_KEY=your_jwt_secret_key
 
-## Troubleshooting
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/research_db
 
-### Common Issues
+# Google OAuth
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-1. **Google OAuth not working:**
+# AI Services
+# GOOGLE_API_KEY=your_gemini_api_key (Optional/Fallback)
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5-coder:3b
 
-   - Check redirect URI matches exactly
-   - Verify Client ID and Secret
-   - Ensure APIs are enabled in Google Console
+# Frontend Integration
+FRONTEND_URL=http://localhost:5173
+```
 
-2. **Database connection failed:**
+### 5. Initialize Database
 
-   - Wait for database to be ready (health check)
-   - Verify DATABASE_URL format
-   - Check PostgreSQL container logs
+Run the database migrations to create the necessary tables.
 
-3.
+```bash
+flask db upgrade
+```
+
+### 6. Run the Application
+
+```bash
+python run.py
+```
+*The server will start at `http://localhost:5000`*
+
+## 📂 Project Structure
+
+```bash
+research-mate-server/
+├── app/
+│   ├── ai/            # AI logic & Prompt templates
+│   ├── auth/          # Authentication routes (OAuth/JWT)
+│   ├── codeagent/     # LLM coding assistant modules
+│   ├── documents/     # File handling & parsing
+│   ├── models/        # SQLAlchemy Database Models
+│   ├── rag/           # RAG pipeline & Vector store logic
+│   └── users/         # User management
+├── db/                # Database utilities
+├── migrations/        # Alembic migrations
+├── run.py             # Entry point
+└── requirements.txt   # Dependencies
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the project.
+2. Create feature branch (`git checkout -b feature/NewFeature`).
+3. Commit changes (`git commit -m 'Add NewFeature'`).
+4. Push to branch (`git push origin feature/NewFeature`).
+5. Open a Pull Request.
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
