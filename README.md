@@ -1,16 +1,31 @@
-# 🎓 ResearchMate Server
-
+<!-- PROJECT LOGO -->
+<br />
 <div align="center">
+  <a href="https://github.com/Shrinidhi857/ResearchMate-server">
+    <img src="logo.png" alt="Logo" width="80" height="80">
+  </a>
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![Flask](https://img.shields.io/badge/Flask-2.3-000000?style=for-the-badge&logo=flask&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=for-the-badge&logo=postgresql&logoColor=white)
-![LangChain](https://img.shields.io/badge/🦜_LangChain-0.1-green?style=for-the-badge)
-![Ollama](https://img.shields.io/badge/Ollama-Run_Locally-orange?style=for-the-badge)
+  <h3 align="center">ResearchMate Server</h3>
 
-**An intelligent research management platform powered by AI.**
-*Organize documents, extract insights, and collaborate seamlessly.*
+  <p align="center">
+    An intelligent research management platform powered by AI.
+    <br />
+    Organize documents, extract insights, and collaborate seamlessly.
+    <br />
+    <br />
+    <a href="https://github.com/Shrinidhi857/ResearchMate-server">View Demo</a>
+    ·
+    <a href="https://github.com/Shrinidhi857/ResearchMate-server/issues">Report Bug</a>
+    ·
+    <a href="https://github.com/Shrinidhi857/ResearchMate-server/issues">Request Feature</a>
+  </p>
 
+  ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
+  ![Flask](https://img.shields.io/badge/Flask-2.3-000000?style=for-the-badge&logo=flask&logoColor=white)
+  ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+  ![LangChain](https://img.shields.io/badge/🦜_LangChain-0.1-green?style=for-the-badge)
+  ![Ollama](https://img.shields.io/badge/Ollama-Run_Locally-orange?style=for-the-badge)
+  ![Qwen](https://img.shields.io/badge/Qwen-2.5_Coder_3B-blue?style=for-the-badge)
 </div>
 
 ---
@@ -98,6 +113,7 @@ Ensure Ollama is running and pull the required model:
 
 ```bash
 ollama pull qwen2.5-coder:3b
+ollama serve
 ```
 
 ### 4. Configure Environment
@@ -172,3 +188,9 @@ Contributions are welcome! Please follow these steps:
 ## 📄 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+## 📄 References
+
+- [LangChain](https://github.com/hwchase17/langchain)
+- [Ollama](https://github.com/ollama/ollama)
+- [ChromaDB](https://github.com/chroma-core/chroma)
