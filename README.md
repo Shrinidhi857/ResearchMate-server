@@ -40,8 +40,11 @@ Built with **Flask**, it integrates **Google's Gemini** models and a **RAG (Retr
   - **Feature Extraction**: Identify key methodologies, results, and citations automatically.
 
 - **🛠️ Advanced Tools**
-  - **Web Scraper**: Built-in tools to fetch external research data.
-  - **Code Agent**: Experimental capabilities for code analysis and generation.
+   - **Ollama Qwen 2.5 Coder 3B Agent**: A specialized ReAct-based agent for drafting and editing research papers in LaTeX.
+    - **Context-Aware**: Searches and reads project documents to inform writing.
+    - **Incremental Editing**: Performs targeted edits while preserving existing content.
+    - **Intelligent Reasoning**: Uses a thought-action-observation loop to plan complex tasks.
+
 
 ## ⚙️ Tech Stack
 
