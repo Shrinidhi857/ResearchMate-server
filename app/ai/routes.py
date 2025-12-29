@@ -1,7 +1,5 @@
 from flask import Blueprint, request, jsonify, Response
 from app.auth.utils import token_required
-from gemma2.classifier import summarize_research_paper
-from gemma2.ieee_reference import generate_ieee_reference_for_doc
 from service.auto_site import auto_cite_paragraph
 import time
 import json
@@ -30,11 +28,10 @@ def summarize_api(current_user):
     else:
         return jsonify({"message": f"Error: {result['error']}"}), 500
 
-
+""" 
 @ai_bp.route('/ieee-ref', methods=['POST'])
 @token_required
 def generate_ieee_reference(current_user):
-    """API endpoint to generate IEEE-style reference for a document"""
     try:
         data = request.get_json()
 
@@ -55,8 +52,8 @@ def generate_ieee_reference(current_user):
         doc_id = first_item['doc_id']
         result = generate_ieee_reference_for_doc(current_user, doc_id)
 
-        return result
-
+        return result """
+""" 
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -64,9 +61,9 @@ def generate_ieee_reference(current_user):
             "success": False,
             "message": "Server error while generating IEEE reference",
             "error": str(e)
-        }), 500
+        }), 500 """
 
-
+""" 
 @ai_bp.route('/generate_reference/<string:doc_id>', methods=['POST'])
 @token_required
 def generate_reference(current_user, doc_id):
@@ -76,7 +73,6 @@ def generate_reference(current_user, doc_id):
 @ai_bp.route('/auto_cite', methods=['POST'])
 @token_required
 def auto_cite_endpoint(current_user):
-    """Endpoint to add citations to a paragraph"""
     try:
         data = request.get_json()
         paragraph = data.get("paragraph", "")
@@ -97,7 +93,7 @@ def auto_cite_endpoint(current_user):
         traceback.print_exc()
         return jsonify({"message": f"Error: {str(e)}"}), 500
 
-
+ """
 @ai_bp.route('/test', methods=['GET'])
 def test_stream():
     def generate():

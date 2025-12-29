@@ -1,5 +1,15 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime
+import tempfile
+import subprocess
+import os
+import io
+import shutil
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER
 from app.extensions import db
 from app.models import Project, User, Message, Response, PaperBucket, Paper, Document
 from app.auth.utils import token_required
@@ -52,18 +62,47 @@ def invite_user(current_user, project_id):
         return jsonify({"error": "Only project owner can invite users"}), 403
 
     invited_user = User.query.filter_by(email=user_email).first()
+    inviter_name = f"{current_user.first_name} {current_user.last_name}".strip() or current_user.email
 
+    # Case 1: User does NOT exist in database
     if not invited_user:
-        return jsonify({"error": "User does not exist"}), 404
+        try:
+            from app.services.email_service import send_signup_invitation_email
+            
+            email_sent = send_signup_invitation_email(
+                recipient_email=user_email,
+                project_name=project.project_name,
+                inviter_name=inviter_name
+            )
+            
+            if email_sent:
+                return jsonify({
+                    "message": f"Signup invitation sent to {user_email}",
+                    "status": "signup_required"
+                }), 200
+            else:
+                return jsonify({
+                    "message": f"User doesn't exist. Failed to send signup invitation email.",
+                    "status": "email_failed"
+                }), 200
+                
+        except Exception as e:
+            print(f"Email sending error: {str(e)}")
+            return jsonify({
+                "message": f"User doesn't exist. Please ask them to sign up first.",
+                "status": "signup_required",
+                "error": str(e)
+            }), 200
 
+    # Case 2: User EXISTS in database
     if invited_user in project.users:
-        return jsonify({"error": "User already added"}), 400
+        return jsonify({"error": "User already added to this project"}), 400
 
+    # Add user to project
     project.users.append(invited_user)
     db.session.commit()
 
     try:
-        inviter_name = f"{current_user.first_name} {current_user.last_name}".strip() or current_user.email
         recipient_name = f"{invited_user.first_name} {invited_user.last_name}".strip() or invited_user.email
         
         email_sent = send_invitation_email(
@@ -75,19 +114,22 @@ def invite_user(current_user, project_id):
         
         if email_sent:
             return jsonify({
-                "message": "User invited successfully and notification email sent"
+                "message": f"✅ {recipient_name} invited successfully! Notification email sent.",
+                "status": "invited"
             }), 200
         else:
             return jsonify({
-                "message": "User invited successfully but failed to send notification email"
+                "message": f"✅ {recipient_name} added to project, but notification email failed to send.",
+                "status": "invited_no_email"
             }), 200
             
     except Exception as e:
         print(f"Email sending error: {str(e)}")
         return jsonify({
-            "message": "User invited successfully but failed to send notification email",
-            "error": str(e)
+            "message": f"✅ User added to project, but notification email failed: {str(e)}",
+            "status": "invited_no_email"
         }), 200
+
 
 
 @projects_bp.route("/projects/<project_id>/messages", methods=["POST"])
@@ -608,3 +650,308 @@ def ask_question(current_user, project_id):
             "error": "No context found for this project despite ready status. Please rebuild context.",
             "vector_status": "error"
         }), 404
+
+
+# LaTeX to PDF Compilation
+@projects_bp.route("/projects/<project_id>/latex-to-pdf", methods=["POST"])
+@token_required
+def latex_to_pdf(current_user, project_id):
+    """
+    Compile LaTeX code to PDF and send back to client
+    Expects JSON with 'latex_code' field
+    Returns PDF file or error message
+    """
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    data = request.get_json()
+    latex_code = data.get("latex_code")
+    filename = data.get("filename", "document")
+    
+    if not latex_code:
+        return jsonify({"error": "latex_code is required"}), 400
+    
+    # Ensure filename doesn't have .pdf extension yet
+    if filename.endswith('.pdf'):
+        filename = filename[:-4]
+    
+    # Create a temporary directory for compilation
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Write LaTeX code to a .tex file
+        tex_file_path = os.path.join(temp_dir, f"{filename}.tex")
+        with open(tex_file_path, 'w', encoding='utf-8') as f:
+            f.write(latex_code)
+        
+        print(f"[LaTeX] Compiling {filename}.tex in {temp_dir}")
+        
+        # Run pdflatex to compile the LaTeX file
+        # Run twice to resolve references
+        for i in range(2):
+            process = subprocess.run(
+                ['pdflatex', '-interaction=nonstopmode', f'{filename}.tex'],
+                cwd=temp_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            print(f"[LaTeX] Compilation pass {i+1} return code: {process.returncode}")
+        
+        # Check if PDF was created
+        pdf_file_path = os.path.join(temp_dir, f"{filename}.pdf")
+        
+        if not os.path.exists(pdf_file_path):
+            # If compilation failed, return the error log
+            log_file_path = os.path.join(temp_dir, f"{filename}.log")
+            error_message = "PDF compilation failed."
+            
+            print(f"[LaTeX] PDF not created. Checking log file...")
+            
+            if os.path.exists(log_file_path):
+                with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as log_file:
+                    log_content = log_file.read()
+                    # Extract relevant error lines
+                    error_lines = [line for line in log_content.split('\n') if '!' in line or 'Error' in line]
+                    if error_lines:
+                        error_message = f"PDF compilation failed:\n" + "\n".join(error_lines[:10])
+                    print(f"[LaTeX] Error: {error_message}")
+            
+            # Cleanup before returning error
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            return jsonify({
+                "error": error_message,
+                "stdout": process.stdout[-1000:] if process.stdout else "",  # Last 1000 chars
+                "stderr": process.stderr[-1000:] if process.stderr else ""
+            }), 400
+        
+        # Read PDF into memory
+        print(f"[LaTeX] PDF created successfully. Size: {os.path.getsize(pdf_file_path)} bytes")
+        
+        with open(pdf_file_path, 'rb') as pdf_file:
+            pdf_data = pdf_file.read()
+        
+        # Clean up temporary directory NOW (before sending file)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        # Create BytesIO object from PDF data
+        pdf_io = io.BytesIO(pdf_data)
+        pdf_io.seek(0)
+        
+        # Send the PDF file from memory
+        return send_file(
+            pdf_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f"{filename}.pdf"
+        )
+        
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return jsonify({"error": "LaTeX compilation timed out (>30s)"}), 400
+    
+    except FileNotFoundError as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print(f"[LaTeX] FileNotFoundError: {str(e)}")
+        return jsonify({
+            "error": "pdflatex not found. Please ensure LaTeX is installed on the server.",
+            "hint": "Install TeX Live or MiKTeX"
+        }), 500
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# Simple PDF Generation from Database (No LaTeX required)
+@projects_bp.route("/projects/<project_id>/generate-pdf", methods=["GET"])
+@token_required
+def generate_pdf_from_db(current_user, project_id):
+    """
+    Generate PDF from paper content stored in database
+    No LaTeX installation required - uses ReportLab
+    """
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    # Get paper content from database
+    paper = project.paper
+    
+    if not paper or not paper.content:
+        return jsonify({"error": "No paper content found for this project"}), 404
+    
+    try:
+        # Create PDF in memory
+        buffer = io.BytesIO()
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18,
+        )
+        
+        # Container for the 'Flowable' objects
+        elements = []
+        
+        # Define styles
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            name='Justify',
+            parent=styles['BodyText'],
+            alignment=TA_JUSTIFY,
+            fontSize=11,
+            leading=14,
+        ))
+        
+        # Title style
+        title_style = ParagraphStyle(
+            name='CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor='#1a1a1a',
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        
+        # Add project title
+        title = Paragraph(f"<b>{project.project_name}</b>", title_style)
+        elements.append(title)
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Process content - handle LaTeX content
+        content = paper.content
+        
+        # Better LaTeX processing using regex
+        import re
+        
+        # Remove document structure commands
+        content = re.sub(r'\\documentclass\{[^}]*\}', '', content)
+        content = re.sub(r'\\usepackage(\[[^\]]*\])?\{[^}]*\}', '', content)
+        content = re.sub(r'\\begin\{document\}', '', content)
+        content = re.sub(r'\\end\{document\}', '', content)
+        
+        # Process title, author, date
+        title_match = re.search(r'\\title\{([^}]*)\}', content)
+        author_match = re.search(r'\\author\{([^}]*)\}', content)
+        date_match = re.search(r'\\date\{([^}]*)\}', content)
+        
+        # Remove these commands from content and add them as formatted elements
+        content = re.sub(r'\\title\{[^}]*\}', '', content)
+        content = re.sub(r'\\author\{[^}]*\}', '', content)
+        content = re.sub(r'\\date\{[^}]*\}', '', content)
+        content = re.sub(r'\\maketitle', '', content)
+        
+        # Add title, author, date if found
+        if title_match:
+            doc_title = Paragraph(f"<b>{title_match.group(1)}</b>", title_style)
+            elements.append(doc_title)
+            elements.append(Spacer(1, 0.1*inch))
+        
+        if author_match:
+            author_text = author_match.group(1)
+            author_para = Paragraph(f"<i>{author_text}</i>", styles['Normal'])
+            elements.append(author_para)
+            elements.append(Spacer(1, 0.05*inch))
+        
+        if date_match:
+            date_text = date_match.group(1)
+            if date_text == '\\today':
+                from datetime import datetime
+                date_text = datetime.now().strftime('%B %d, %Y')
+            date_para = Paragraph(date_text, styles['Normal'])
+            elements.append(date_para)
+            elements.append(Spacer(1, 0.3*inch))
+        
+        # Process sections - convert to bold headings
+        def replace_section(match):
+            return f'<br/><br/><b><font size="14">{match.group(1)}</font></b><br/>'
+        
+        def replace_subsection(match):
+            return f'<br/><b><font size="12">{match.group(1)}</font></b><br/>'
+        
+        def replace_subsubsection(match):
+            return f'<br/><i>{match.group(1)}</i><br/>'
+        
+        content = re.sub(r'\\section\{([^}]*)\}', replace_section, content)
+        content = re.sub(r'\\subsection\{([^}]*)\}', replace_subsection, content)
+        content = re.sub(r'\\subsubsection\{([^}]*)\}', replace_subsubsection, content)
+        
+        # Process text formatting
+        content = re.sub(r'\\textbf\{([^}]*)\}', r'<b>\1</b>', content)
+        content = re.sub(r'\\textit\{([^}]*)\}', r'<i>\1</i>', content)
+        content = re.sub(r'\\emph\{([^}]*)\}', r'<i>\1</i>', content)
+        content = re.sub(r'\\underline\{([^}]*)\}', r'<u>\1</u>', content)
+        
+        # Process line breaks
+        content = content.replace('\\\\', '<br/>')
+        content = content.replace('\\newpage', '<br/><br/>')
+        
+        # Remove comments
+        content = re.sub(r'%.*$', '', content, flags=re.MULTILINE)
+        
+        # Clean up extra whitespace
+        content = re.sub(r'\n\s*\n', '\n\n', content)
+        
+        # Split into paragraphs
+        paragraphs = content.split('\n\n')
+        
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                # Create paragraph
+                try:
+                    p = Paragraph(para, styles['Justify'])
+                    elements.append(p)
+                    elements.append(Spacer(1, 0.1*inch))
+                except Exception as e:
+                    # If paragraph fails, just add as plain text
+                    print(f"Error processing paragraph: {e}")
+                    p = Paragraph(para.replace('<', '&lt;').replace('>', '&gt;'), styles['Justify'])
+                    elements.append(p)
+                    elements.append(Spacer(1, 0.1*inch))
+        
+        # Build PDF
+        doc.build(elements)
+        
+        # Get PDF data
+        pdf_data = buffer.getvalue()
+        buffer.close()
+        
+        # Create new BytesIO for sending
+        pdf_io = io.BytesIO(pdf_data)
+        pdf_io.seek(0)
+        
+        filename = project.project_name.replace(' ', '_')
+        
+        print(f"[PDF] Generated PDF from database. Size: {len(pdf_data)} bytes")
+        
+        return send_file(
+            pdf_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f"{filename}.pdf"
+        )
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+

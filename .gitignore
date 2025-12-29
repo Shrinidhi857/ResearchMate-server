@@ -11,3 +11,16 @@ venv
 \bert-finetuned-model
 app\db
 app\migrations
+db/vectorstore/420e6e51-ce25-4753-9ebc-17bd2cd7f1d4/d7dee097-c0a5-4e5a-a27a-94dc41b713bb/data_level0.bin
+db/vectorstore/420e6e51-ce25-4753-9ebc-17bd2cd7f1d4/chroma.sqlite3
+db/vectorstore/420e6e51-ce25-4753-9ebc-17bd2cd7f1d4/d7dee097-c0a5-4e5a-a27a-94dc41b713bb/header.bin
+db/vectorstore/420e6e51-ce25-4753-9ebc-17bd2cd7f1d4/d7dee097-c0a5-4e5a-a27a-94dc41b713bb/link_lists.bin
+db/vectorstore/420e6e51-ce25-4753-9ebc-17bd2cd7f1d4/d7dee097-c0a5-4e5a-a27a-94dc41b713bb/length.bin
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/chroma.sqlite3
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/chroma.sqlite3
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85ecd77796/data_level0.bin
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/chroma.sqlite3
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85ecd77796/length.bin
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85ecd77796/data_level0.bin
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/chroma.sqlite3
+db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85ecd77796/length.bin

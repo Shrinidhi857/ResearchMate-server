@@ -165,7 +165,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, project_id: s
 
         await manager.send_message(client_id, {
             "type": "CONNECTED",
-            "content": f"Antigravity Agent active for {project_name}. I can read your docs and edit your paper!",
+            "content": f"Agent active for {project_name}. I can read your docs and edit your paper!",
             "client_id": client_id,
             "project_id": project_id
         })

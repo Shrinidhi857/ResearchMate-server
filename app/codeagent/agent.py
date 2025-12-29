@@ -37,7 +37,8 @@ class LaTeXAgent:
         if current_step >= max_steps * 0.7:  # 70% of max steps
             urgency_warning = f"\n⚠️ WARNING: You are at step {current_step}/{max_steps}. You MUST call 'none' tool soon to provide your final answer!\n"
         
-        return f"""You are the 'Antigravity' LaTeX Agent, an expert in research paper writing.
+        return f"""You are the 
+         LaTeX Agent, an expert in research paper writing.
 Current Project: {project_name}
 {urgency_warning}
 AVAILABLE TOOLS:
