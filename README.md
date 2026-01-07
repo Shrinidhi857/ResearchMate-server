@@ -18,6 +18,8 @@
     <a href="https://github.com/Shrinidhi857/ResearchMate-server/issues">Report Bug</a>
     ·
     <a href="https://github.com/Shrinidhi857/ResearchMate-server/issues">Request Feature</a>
+    ·
+    <a href="https://github.com/Shrinidhi857/ResearchMate">Frontend</a>
   </p>
 
   ![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
@@ -26,6 +28,8 @@
   ![LangChain](https://img.shields.io/badge/🦜_LangChain-0.1-green?style=for-the-badge)
   ![Ollama](https://img.shields.io/badge/Ollama-Run_Locally-orange?style=for-the-badge)
   ![Qwen](https://img.shields.io/badge/Qwen-2.5_Coder_3B-blue?style=for-the-badge)
+  ![ChromaDB](https://img.shields.io/badge/ChromaDB-Run_Locally-orange?style=for-the-badge)
+  
 </div>
 
 ---
@@ -60,6 +64,8 @@ Built with **Flask**, it integrates **Google's Gemini** models and a **RAG (Retr
     - **Incremental Editing**: Performs targeted edits while preserving existing content.
     - **Intelligent Reasoning**: Uses a thought-action-observation loop to plan complex tasks.
 
+## 📊Diagram
+<img src="diagram.png" alt="Diagram" height="100%">
 
 ## ⚙️ Tech Stack
 
