@@ -116,28 +116,38 @@ def perform_clustering(embeddings: np.ndarray, dim: int, threshold: float):
     reduced_global = global_cluster_embeddings(embeddings, dim)
     global_clusters, n_global = GMM_cluster(reduced_global, threshold)
 
-    all_local_clusters = [np.array([]) for _ in embeddings]
+    all_local_clusters = [np.array([0]) for _ in range(len(embeddings))]
     total_clusters = 0
 
     for i in range(n_global):
         mask = np.array([i in gc for gc in global_clusters])
         cluster_emb = embeddings[mask]
+        cluster_indices = np.where(mask)[0]
 
         if len(cluster_emb) <= dim + 1:
-            local_clusters = [np.array([0])]
+            # All points in this global cluster get the same local cluster ID
+            for idx in cluster_indices:
+                all_local_clusters[idx] = np.array([total_clusters])
             n_local = 1
         else:
             reduced_local = local_cluster_embeddings(cluster_emb, dim)
             local_clusters, n_local = GMM_cluster(reduced_local, threshold)
 
-        # Assign clusters
-        for j in range(n_local):
-            local_mask = np.array([j in lc for lc in local_clusters])
-            idxs = np.where(mask)[0][local_mask]
-            for idx in idxs:
-                all_local_clusters[idx] = np.append(
-                    all_local_clusters[idx], j + total_clusters
-                )
+            # Ensure local_clusters has same length as cluster_emb
+            if len(local_clusters) != len(cluster_emb):
+                # Fallback: assign all to cluster 0
+                for idx in cluster_indices:
+                    all_local_clusters[idx] = np.array([total_clusters])
+            else:
+                # Assign clusters properly
+                for j in range(n_local):
+                    local_mask = np.array([j in lc for lc in local_clusters])
+                    if len(local_mask) != len(cluster_indices):
+                        continue  # Skip if dimensions don't match
+                    
+                    selected_idxs = cluster_indices[local_mask]
+                    for idx in selected_idxs:
+                        all_local_clusters[idx] = np.array([j + total_clusters])
 
         total_clusters += n_local
 
@@ -347,13 +357,13 @@ def RaptorPipeline(current_user, data, project_id: Optional[str] = None, fast_mo
     # Run raptor with optimized recursion depth
     start_time = time.time()
     raptor_results = recursive_embed_cluster_summarize(
-        doc_texts, level=1, n_levels=n_levels, llm=llm, embd=embd
+        all_chunks, level=1, n_levels=n_levels, llm=llm, embd=embd
     )
     elapsed = time.time() - start_time
     print(f"DEBUG: RAPTOR analysis completed in {elapsed:.2f}s\n")
 
-    # Gather all summaries
-    final_texts = doc_texts[:]
+    # Gather all summaries (start with chunks, not full docs)
+    final_texts = all_chunks[:]
     for lvl in sorted(raptor_results.keys()):
         summaries = raptor_results[lvl][1]["summaries"].tolist()
         final_texts.extend(summaries)

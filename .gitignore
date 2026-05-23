@@ -25,3 +25,6 @@ db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85
 db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/chroma.sqlite3
 db/vectorstore/5e06878d-6bac-449a-97e0-7d64faf507d1/f9ab6c36-3a3c-45cf-9973-dd85ecd77796/length.bin
 db/*
+migrations/*
+migrations
+rag/__pycache__/*
