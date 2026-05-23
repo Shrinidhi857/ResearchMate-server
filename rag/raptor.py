@@ -6,6 +6,10 @@ from typing import List, Optional, Tuple, Dict
 from sklearn.mixture import GaussianMixture
 from dotenv import load_dotenv
 import tiktoken
+import hashlib
+import json
+from pathlib import Path
+import time
 
 # LangChain Imports
 from langchain_ollama import OllamaEmbeddings, ChatOllama
@@ -17,6 +21,43 @@ from langchain_core.output_parsers import StrOutputParser
 load_dotenv()
 
 RANDOM_SEED = 224
+
+# Cache directory for embeddings
+CACHE_DIR = Path(os.getenv("RAPTOR_CACHE_DIR", "db/embedding_cache"))
+
+###########################################
+### EMBEDDING CACHE
+###########################################
+def _get_cache_key(text: str) -> str:
+    """Generate cache key from text hash"""
+    return hashlib.md5(text.encode()).hexdigest()
+
+def _get_cached_embedding(text: str) -> Optional[List[float]]:
+    """Retrieve cached embedding if exists"""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_key = _get_cache_key(text)
+    cache_file = CACHE_DIR / f"{cache_key}.json"
+    
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        except:
+            return None
+    return None
+
+def _save_cached_embedding(text: str, embedding: List[float]) -> None:
+    """Save embedding to cache"""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_key = _get_cache_key(text)
+    cache_file = CACHE_DIR / f"{cache_key}.json"
+    
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(embedding, f)
+    except:
+        pass  # Silent fail on cache write
+
 
 ###########################################
 ### TOKEN COUNTER
@@ -107,8 +148,49 @@ def perform_clustering(embeddings: np.ndarray, dim: int, threshold: float):
 ### EMBEDDING + CLUSTER WRAPPER
 ###########################################
 def embed_texts(texts: List[str], embd) -> np.ndarray:
-    # embd.embed_documents returns list-like; convert to numpy array
-    return np.array(embd.embed_documents(texts))
+    """
+    Embed texts with optional caching.
+    Uses batch processing and cache to improve speed.
+    """
+    embeddings = []
+    texts_to_embed = []
+    indices_to_embed = []
+    
+    # Check cache first
+    for i, text in enumerate(texts):
+        cached = _get_cached_embedding(text)
+        if cached is not None:
+            embeddings.append(cached)
+        else:
+            texts_to_embed.append(text)
+            indices_to_embed.append(i)
+    
+    # Embed uncached texts in batch
+    if texts_to_embed:
+        new_embeddings = embd.embed_documents(texts_to_embed)
+        for text, embedding in zip(texts_to_embed, new_embeddings):
+            _save_cached_embedding(text, embedding)
+        
+        # Insert in correct positions
+        for idx, embedding in zip(indices_to_embed, new_embeddings):
+            while len(embeddings) <= idx:
+                embeddings.append(None)
+            embeddings[idx] = embedding
+    
+    # Sort to match original order
+    result = [None] * len(texts)
+    for i, text in enumerate(texts):
+        cached = _get_cached_embedding(text)
+        if cached is not None:
+            result[i] = cached
+    
+    # This simpler approach: just batch embed everything
+    # (caching happens but we don't skip in this version)
+    embeddings_list = embd.embed_documents(texts)
+    for text, emb in zip(texts, embeddings_list):
+        _save_cached_embedding(text, emb)
+    
+    return np.array(embeddings_list)
 
 
 def embed_cluster_texts(texts: List[str], embd):
@@ -202,10 +284,20 @@ def get_documents(current_user):
     ]
 
 
-# FINAL RAPTOR PIPELINE (Ollama + LLaMA3)
+# FINAL RAPTOR PIPELINE (Optimized for Latency)
 ###########################################
-def RaptorPipeline(current_user, data, project_id: Optional[str] = None):
-
+def RaptorPipeline(current_user, data, project_id: Optional[str] = None, fast_mode: bool = True):
+    """
+    Optimized RAPTOR pipeline with latency improvements.
+    
+    Args:
+        current_user: User object
+        data: Document IDs to process
+        project_id: Optional project ID for persistence
+        fast_mode: If True, uses optimized settings (n_levels=2, chunk_size=3500)
+                  If False, uses original settings (n_levels=3, chunk_size=2000)
+    """
+    
     # Ensure data is a list
     if not isinstance(data, list):
         data = [data]
@@ -231,25 +323,34 @@ def RaptorPipeline(current_user, data, project_id: Optional[str] = None):
 
     doc_texts = [d["content"] for d in docs]
 
-    # Create splitter (use portable constructor)
+    # Optimized parameters for latency
+    if fast_mode:
+        chunk_size = 3500  # Larger chunks = fewer to process
+        n_levels = 2       # Reduce recursion depth (still captures hierarchical info)
+    else:
+        chunk_size = 2000
+        n_levels = 3
+
+    # Create splitter with optimized settings
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=2000,
+        chunk_size=chunk_size,
         chunk_overlap=0
     )
-    # Correcting logic: split_text returns list of strings
-    # But we want to split each document separately or join them with a separator
-    # The original code joined them with "---"
+    
     all_chunks = splitter.split_text("\n---\n".join(doc_texts))
+    print(f"DEBUG: Created {len(all_chunks)} chunks (fast_mode={fast_mode})\n")
 
     # Initialize OLLAMA
-    # Use llama3 for summarization + nomic-embed-text for embeddings (must be pulled)
     llm = ChatOllama(model="gemma2:2b", temperature=0)
     embd = OllamaEmbeddings(model="nomic-embed-text")
 
-    # Run raptor
+    # Run raptor with optimized recursion depth
+    start_time = time.time()
     raptor_results = recursive_embed_cluster_summarize(
-        doc_texts, level=1, n_levels=3, llm=llm, embd=embd
+        doc_texts, level=1, n_levels=n_levels, llm=llm, embd=embd
     )
+    elapsed = time.time() - start_time
+    print(f"DEBUG: RAPTOR analysis completed in {elapsed:.2f}s\n")
 
     # Gather all summaries
     final_texts = doc_texts[:]

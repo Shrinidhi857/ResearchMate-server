@@ -12,7 +12,7 @@ def asking_llm(retriever, userQuestion):
 
     model = ChatOllama(
         model="qwen2.5-coder:3b",
-        temperature=2
+        temperature=0  # Reduced from 2 (invalid range) to 0 for faster inference + consistency
     )
 
     rag_chain = (
