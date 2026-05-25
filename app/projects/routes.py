@@ -254,6 +254,49 @@ def get_project_responses(current_user, project_id):
     return jsonify([r.to_dict() for r in project.responses]), 200
 
 
+@projects_bp.route("/projects/<project_id>/conversation", methods=["GET"])
+@token_required
+def get_conversation(current_user, project_id):
+    """
+    Get unified, chronologically-ordered conversation thread for a project.
+    Merges all Messages (user questions) and Responses (AI answers) into a single thread.
+    """
+    project = Project.query.filter_by(project_id=project_id).first()
+    
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    if current_user not in project.users:
+        return jsonify({"error": "Not allowed"}), 403
+    
+    conversation = []
+    
+    # Add all messages to conversation
+    for message in project.messages:
+        conversation.append({
+            "type": "message",
+            "content": message.message_content,
+            "sender": message.message_sender,
+            "timestamp": message.created_at.isoformat() if message.created_at else None,
+            "id": message.id
+        })
+    
+    # Add all responses to conversation
+    for response in project.responses:
+        conversation.append({
+            "type": "response",
+            "content": response.summary,
+            "sender": response.response_by,
+            "timestamp": response.created_at.isoformat() if response.created_at else None,
+            "id": response.response_id
+        })
+    
+    # Sort by timestamp ascending (chronological order)
+    conversation.sort(key=lambda x: x["timestamp"] or "")
+    
+    return jsonify({"conversation": conversation}), 200
+
+
 @projects_bp.route("/projects/<project_id>/top-users", methods=["GET"])
 @token_required
 def get_project_top_users(current_user, project_id):
