@@ -6,6 +6,7 @@ from fastapi import WebSocket
 
 class LLMProvider(str, Enum):
     OLLAMA = "ollama"
+    GEMINI = "gemini"        
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     HUGGINGFACE = "huggingface"
@@ -13,11 +14,10 @@ class LLMProvider(str, Enum):
 class Config:
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 8000))
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLMProvider.OLLAMA)
-    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", LLMProvider.GEMINI)  
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")                   
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")   
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
-
 class AgentConfig:
     """Centralized configuration for agent behavior and limits"""
     MAX_STEPS = int(os.getenv("AGENT_MAX_STEPS", "20"))

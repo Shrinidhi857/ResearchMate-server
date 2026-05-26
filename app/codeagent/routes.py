@@ -11,7 +11,7 @@ from app import create_app
 from app.extensions import db
 from app.models.models import Project, PaperBucket, Document, Paper
 
-from .llm import OllamaLLM
+from .llm import GeminiLLM
 from .agent import LaTeXAgent
 from .utils import Config, MessageType, ConnectionManager, AgentState, AgentConfig
 
@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 # Initialize LLM and Agent
-llm = OllamaLLM(model=Config.OLLAMA_MODEL, base_url=Config.OLLAMA_BASE_URL)
+llm = GeminiLLM(model=Config.GEMINI_MODEL, api_key=Config.GEMINI_API_KEY)
 agent = LaTeXAgent(llm)
 manager = ConnectionManager()
 
