@@ -5,7 +5,6 @@ from datetime import datetime
 from fastapi import WebSocket
 
 class LLMProvider(str, Enum):
-    OLLAMA = "ollama"
     GEMINI = "gemini"        
     OPENAI = "openai"
     ANTHROPIC = "anthropic"

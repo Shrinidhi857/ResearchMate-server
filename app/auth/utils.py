@@ -66,3 +66,36 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
 
     return decorated_function
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization')
+        if request.method == "OPTIONS":   # ← add this
+            return jsonify({"status": "ok"}), 200
+        
+        if auth_header:
+            try:
+                token = auth_header.split(' ')[1]
+            except IndexError:
+                return jsonify({'error': 'Invalid token format'}), 401
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        user_id = verify_token(token)
+        if user_id is None:
+            return jsonify({'error': 'Token is invalid or expired'}), 401
+        
+        current_user = User.query.get(user_id)
+        if not current_user:
+            return jsonify({'error': 'User not found'}), 401
+        
+        if not current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        return f(current_user, *args, **kwargs)
+    
+    return decorated_function

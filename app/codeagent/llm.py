@@ -51,6 +51,3 @@ class GeminiLLM(BaseLLM):
 \section{Introduction}
 This is a fallback document generated when the LLM is unavailable.
 \end{document}"""
-
-# Keep OllamaLLM if you want both branches to share this file
-# class OllamaLLM(BaseLLM): ...
