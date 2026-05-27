@@ -1,10 +1,11 @@
 import json
 import uuid
 import time
+import os
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 from app.auth.utils import token_required
 from app.models import Document
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -55,8 +56,12 @@ def stream_analysis(session_id):
         time.sleep(1)
         
         try:
-            # Initialize LLM
-            llm = ChatOllama(model="qwen2.5-coder:3b", temperature=0.7)
+            # Initialize LLM - using Gemini
+            llm = ChatGoogleGenerativeAI(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                api_key=os.getenv("GEMINI_API_KEY"),
+                temperature=0.7
+            )
             prompt = ChatPromptTemplate.from_template("""
                     You are an expert research assistant specialized in reading and summarizing academic research papers.
 
