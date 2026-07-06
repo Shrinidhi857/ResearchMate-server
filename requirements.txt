@@ -29,7 +29,6 @@ networkx
 langchain
 langchain-core
 langchain-community
-langchain-chroma
 langchain-google-genai
 google-generativeai
 chromadb
@@ -48,4 +47,5 @@ httpx
 PyPDF2==3.0.1
 lxml
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+langchain-postgres
 

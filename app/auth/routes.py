@@ -59,6 +59,7 @@ def register():
             is_verified=False
         )
         user.set_password(password)
+        user.add_tokens(30000)  # ✅ Award 30k tokens to new user
         
         db.session.add(user)
         db.session.commit()
@@ -156,6 +157,7 @@ def google_callback():
                 google_id=google_id,
                 is_verified=True
             )
+            user.add_tokens(30000)  # ✅ Award 30k tokens to new Google user
             db.session.add(user)
         else:
             if not user.google_id:

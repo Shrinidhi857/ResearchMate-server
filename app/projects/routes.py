@@ -14,10 +14,83 @@ from app.extensions import db
 from app.models import Project, User, Message, Response, PaperBucket, Paper, Document
 from app.auth.utils import token_required
 from app.services.email_service import send_invitation_email
-from rag.raptor import RaptorPipeline, get_retriever
+from rag.raptor import RaptorPipeline, get_retriever, temporary_query_pipeline
 from rag.raptor_middleman import asking_llm
 
 projects_bp = Blueprint('projects', __name__)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FEATURE 1: TEMPORARY QUERY (No Permanent Storage)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@projects_bp.route("/query-temporary", methods=["POST"])
+def query_temporary():
+    """
+    Feature 1: Direct text embedding for one-off queries
+    
+    No authentication required (modify if needed)
+    No permanent storage - embeddings discarded after query
+    
+    Request JSON:
+    {
+        "text": "Document content to query against",
+        "question": "What do you want to know?"
+    }
+    
+    Response:
+    {
+        "answer": "LLM's answer based on text",
+        "mode": "temporary",
+        "storage": "none"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        # Validation
+        text = data.get("text", "").strip()
+        question = data.get("question", "").strip()
+        
+        if not text or not question:
+            return jsonify({
+                "error": "Both 'text' and 'question' fields are required"
+            }), 400
+        
+        if len(text) < 10:
+            return jsonify({
+                "error": "Text must be at least 10 characters long"
+            }), 400
+        
+        if len(question) < 5:
+            return jsonify({
+                "error": "Question must be at least 5 characters long"
+            }), 400
+        
+        # ✅ FEATURE 1: Execute temporary query
+        answer = temporary_query_pipeline(text, question)
+        
+        return jsonify({
+            "answer": answer,
+            "mode": "temporary",
+            "storage": "none",
+            "text_length": len(text),
+            "question": question
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": str(e),
+            "type": "temporary_query_error"
+        }), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FEATURE 2: PROJECT-BASED PERSISTENT STORAGE
+# ═══════════════════════════════════════════════════════════════════════════
+
 
 
 @projects_bp.route("/projects/create", methods=["POST"])
@@ -596,6 +669,16 @@ def get_vector_status(current_user, project_id):
 @projects_bp.route("/projects/<project_id>/build-context", methods=["POST"])
 @token_required
 def build_context(current_user, project_id):
+    """
+    ✅ CORRECTED: Build RAPTOR context for project
+    
+    Steps:
+    1. Fetch papers from paper_bucket
+    2. Retrieve document content for each paper_id
+    3. Run RAPTOR pipeline
+    4. Store embeddings in PGVector (permanent)
+    5. Update vector_status to "ready"
+    """
     project = Project.query.filter_by(project_id=project_id).first()
     
     if not project:
@@ -604,50 +687,111 @@ def build_context(current_user, project_id):
     if current_user not in project.users:
         return jsonify({"error": "Not allowed"}), 403
     
-    # Get paper bucket
+    # Check if paper bucket is populated
     paper_bucket = PaperBucket.query.filter_by(project_id=project.id).first()
     if not paper_bucket or not paper_bucket.paper_ids:
-        return jsonify({"error": "No papers in bucket"}), 400
+        return jsonify({
+            "error": "No papers in bucket. Add papers before building context."
+        }), 400
     
     # Update status to processing
     project.vector_status = "processing"
     db.session.commit()
     
     try:
-        # Fetch document contents for the papers in the bucket
-        docs = Document.query.filter(Document.doc_id.in_(paper_bucket.paper_ids)).all()
+        # ✅ STEP 1: Fetch documents with actual content
+        docs = Document.query.filter(
+            Document.doc_id.in_(paper_bucket.paper_ids)
+        ).all()
         
         if not docs:
             project.vector_status = "not_started"
             db.session.commit()
-            return jsonify({"error": "No documents found for paper IDs"}), 404
+            return jsonify({
+                "error": f"No documents found for {len(paper_bucket.paper_ids)} paper IDs",
+                "paper_ids": paper_bucket.paper_ids
+            }), 404
         
-        # Format data for RaptorPipeline
-        data_for_raptor = [{"doc_id": d.doc_id} for d in docs]
+        # ✅ STEP 2: Format documents for RAPTOR (includes content!)
+        documents_content = [
+            {
+                "doc_id": str(d.doc_id),
+                "content": d.content
+            }
+            for d in docs
+        ]
         
-        # Always rebuild embeddings (overwrites existing)
-        RaptorPipeline(current_user, data_for_raptor, project_id)
+        print(f"DEBUG: Prepared {len(documents_content)} documents for RAPTOR")
         
-        # Update status to ready
+        # ✅ STEP 3: Parse request options (handle missing Content-Type)
+        try:
+            data = request.get_json(force=True, silent=True) or {}
+        except:
+            data = {}
+        
+        fast_mode = data.get("fast_mode", True)
+        replace_collection = data.get("replace", True)
+        
+        print(f"DEBUG: fast_mode={fast_mode}, replace={replace_collection}")
+        
+        # ✅ STEP 4: Run RAPTOR pipeline
+        # This creates embeddings and stores them in PGVector
+        retriever = RaptorPipeline(
+            documents_content=documents_content,
+            project_id=project_id,
+            fast_mode=fast_mode,
+            replace_collection=replace_collection
+        )
+        
+        # ✅ STEP 5: Mark project as ready
         project.vector_status = "ready"
+        project.updated_at = datetime.utcnow()
         db.session.commit()
         
         return jsonify({
-            "message": "Context built successfully", 
-            "status": "ready"
+            "message": "Context built successfully",
+            "status": "ready",
+            "documents_processed": len(documents_content),
+            "fast_mode": fast_mode,
+            "replace_mode": replace_collection,
+            "project_id": project_id
         }), 200
         
     except Exception as e:
         import traceback
         traceback.print_exc()
+        
         project.vector_status = "error"
         db.session.commit()
-        return jsonify({"error": str(e), "status": "error"}), 500
+        
+        return jsonify({
+            "error": str(e),
+            "status": "error",
+            "project_id": project_id
+        }), 500
 
 
 @projects_bp.route("/projects/<project_id>/ask", methods=["POST"])
 @token_required
 def ask_question(current_user, project_id):
+    """
+    ✅ Query project context using RAPTOR retriever
+    
+    Prerequisites:
+    - Project must have vector_status == "ready"
+    - Must call /build-context first
+    
+    Request JSON:
+    {
+        "question": "Your question about the documents"
+    }
+    
+    Response:
+    {
+        "answer": "LLM's answer based on RAPTOR embeddings",
+        "vector_status": "ready"
+    }
+    """
     project = Project.query.filter_by(project_id=project_id).first()
     
     if not project:
@@ -656,43 +800,67 @@ def ask_question(current_user, project_id):
     if current_user not in project.users:
         return jsonify({"error": "Not allowed"}), 403
     
-    # Check vector status before attempting to answer
+    # ✅ Check vector status BEFORE attempting to query
     if project.vector_status != "ready":
         status_messages = {
-            "not_started": "Context has not been built yet. Please build context first.",
+            "not_started": "Context has not been built yet. Please call /build-context first.",
             "processing": "Context is currently being built. Please wait and try again.",
-            "error": "An error occurred while building context. Please rebuild context."
+            "error": "An error occurred while building context. Please rebuild using /build-context."
         }
         return jsonify({
-            "error": status_messages.get(project.vector_status, "Context not ready"),
-            "vector_status": project.vector_status
+            "error": status_messages.get(
+                project.vector_status,
+                "Context not ready"
+            ),
+            "vector_status": project.vector_status,
+            "help": "Call POST /projects/<project_id>/build-context to build embeddings"
         }), 400
     
-    data = request.get_json()
-    question = data.get("question")
+    # Validate question
+    data = request.get_json(force=True, silent=True) or {}
+    question = data.get("question", "").strip() if data else ""
     
     if not question:
-        return jsonify({"error": "Question is required"}), 400
+        return jsonify({"error": "Question field is required"}), 400
     
-    # Load the retriever for this project
+    if len(question) < 5:
+        return jsonify({"error": "Question must be at least 5 characters"}), 400
+    
+    # ✅ Load retriever from PGVector
     retriever = get_retriever(project_id)
     
-    if retriever is not None:
-        try:
-            answer = asking_llm(retriever, question)
-            return jsonify({"answer": answer}), 200
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return jsonify({"error": str(e)}), 500
-    else:
-        # This shouldn't happen if vector_status is "ready", but handle it anyway
+    if retriever is None:
+        # Retriever failed to load even though status is "ready"
+        # This shouldn't happen, but handle gracefully
         project.vector_status = "error"
         db.session.commit()
+        
         return jsonify({
-            "error": "No context found for this project despite ready status. Please rebuild context.",
+            "error": "Failed to load retriever despite 'ready' status",
+            "suggestion": "Rebuild context using /build-context",
             "vector_status": "error"
-        }), 404
+        }), 500
+    
+    try:
+        # ✅ Query with RAPTOR embeddings
+        answer = asking_llm(retriever, question)
+        
+        return jsonify({
+            "answer": answer,
+            "vector_status": "ready",
+            "question": question,
+            "project_id": project_id
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
+        return jsonify({
+            "error": str(e),
+            "type": "query_error",
+            "suggestion": "Try rebuilding context"
+        }), 500
 
 
 # LaTeX to PDF Compilation

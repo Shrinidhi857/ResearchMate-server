@@ -16,6 +16,7 @@ class User(db.Model):
     last_name = db.Column(db.String(80), nullable=True)
     google_id = db.Column(db.String(100), unique=True, nullable=True)
     is_verified = db.Column(db.Boolean, default=False)
+    is_admin = db.Column(db.Boolean, default=False)
     tokens = db.Column(db.BigInteger, default=0)  
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -27,10 +28,14 @@ class User(db.Model):
         return check_password_hash(self.password_hash, password)
 
     def add_tokens(self, amount: int):
+        if self.tokens is None:
+            self.tokens = 0
         self.tokens += amount
         return self.tokens
 
     def deduct_tokens(self, amount: int):
+        if self.tokens is None:
+            self.tokens = 0
         if self.tokens >= amount:
             self.tokens -= amount
             return True
@@ -43,6 +48,7 @@ class User(db.Model):
             'first_name': self.first_name,
             'last_name': self.last_name,
             'is_verified': self.is_verified,
+            'is_admin': self.is_admin,
             'tokens': self.tokens,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
