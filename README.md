@@ -193,32 +193,47 @@ _The Flask server will start at `http://localhost:5000`_
 
 ---
 
-## 🧠 RAG & RAPTOR Pipeline
+## 🧠 RAG, Retrieval Models & Vector Search Architecture
 
-ResearchMate utilizes **RAPTOR** for tree-structured document processing combined with **PGVector** for vector retrieval.
+> [!NOTE]
+> For complete mathematical formulations, code mappings, and algorithmic specifications, read the dedicated [RAG_AND_RETRIEVAL_ARCHITECTURE.md](file:///c:/code-2025/Research-Management/RAG_AND_RETRIEVAL_ARCHITECTURE.md).
+
+ResearchMate implements a multi-tier hybrid retrieval architecture combining tree-organized hierarchical vector search, ephemeral in-memory indexes, ReAct tool-assisted agentic retrieval, and NLP relation extraction:
 
 ```
-Upload PDF Documents ──> Recursive Text Splitting ──> GMM & UMAP Clustering 
-                           │
-                           ├──> Gemini Summarization per Cluster (Multi-level Tree)
-                           │
-                           └──> Vector Embedding (gemini-embedding-2-preview)
+Upload Research Papers ──> Recursive Character Text Splitting (chunk_size=3500/2000)
                                       │
-                                      └──> PGVector Storage (raptor_<project_id>)
+                                      ▼
+                      UMAP Dimensionality Reduction (Cosine Metric)
+                                      │
+                                      ▼
+                      Gaussian Mixture Model (GMM) Soft Clustering (BIC Selection)
+                                      │
+                                      ├──► Multi-Level LLM Summarization (gemini-2.5-flash)
+                                      │
+                                      └──► Dense Vector Embeddings (gemini-embedding-2-preview)
+                                                 │
+                                                 └──► PGVector Storage (raptor_<project_id>)
 ```
 
-### Key Workflows:
+### Core Retrieval Engines & Models:
 
-1. **Build Project Context**:
-   `POST /projects/<project_id>/build-context`
-   - Processes all project documents, constructs hierarchical cluster summaries, creates embeddings, and stores them in PGVector. Sets `vector_status` to `"ready"`.
+1. **RAPTOR Tree-Structured Vector Engine** ([`rag/raptor.py`](file:///c:/code-2025/Research-Management/rag/raptor.py)):
+   - **Chunking**: `RecursiveCharacterTextSplitter` tokenized with `tiktoken` (`cl100k_base`).
+   - **Embeddings**: `GoogleGenerativeAIEmbeddings` using `gemini-embedding-2-preview`.
+   - **Dimensionality Reduction**: UMAP (`umap-learn`) using Cosine metric for global ($k = \lfloor \sqrt{N - 1} \rfloor$) and local ($k = 10$) feature space reduction to $d_{\text{red}} = 10$.
+   - **Soft Clustering**: Gaussian Mixture Models (`sklearn.mixture.GaussianMixture`) minimizing Bayesian Information Criterion (BIC) for dynamic component count ($n \in [1, \min(50, N)]$) with soft assignment probability threshold $\tau = 0.1$.
+   - **Summarization & Vector DB**: Multi-level tree construction recursively summarized via `gemini-2.5-flash` and stored in PostgreSQL using `langchain_postgres.vectorstores.PGVector`.
 
-2. **Query Context (RAG)**:
-   `POST /projects/<project_id>/ask`
-   - Retrieves relevant document tree nodes from PGVector and generates a cited answer via `gemini-2.5-flash`.
+2. **Ephemeral In-Memory FAISS Engine** ([`temporary_query_pipeline`](file:///c:/code-2025/Research-Management/rag/raptor.py#L525)):
+   - Zero-persistence, single-shot text retrieval using in-memory **FAISS** vector indexes (`langchain_community.vectorstores.FAISS`) for stateless context QA.
 
-3. **Ephemeral Query (No Storage)**:
-   - Uses `temporary_query_pipeline()` to perform single-shot Q&A over text using an in-memory **FAISS** index without writing to the database.
+3. **ReAct Agentic Tool Retrieval** ([`app/codeagent/agent.py`](file:///c:/code-2025/Research-Management/app/codeagent/agent.py)):
+   - Reasoning + Acting loop with structured JSON output (`AgentThought` / `ToolCall`).
+   - Executes relational SQL pattern search (`search_docs`), primary-key payload reading (`read_doc`), and buffer inspection (`read_current_paper`) over WebSockets.
+
+4. **Academic NLP & Graph Retrieval Engine** ([`service/analsys_control.py`](file:///c:/code-2025/Research-Management/service/analsys_control.py)):
+   - Sentence intent semantic search ($\text{threshold} = 0.6$), weak supervision section classification, subject-predicate-object contradiction detection, and citation graph topology analysis using **NetworkX**.
 
 ---
 
