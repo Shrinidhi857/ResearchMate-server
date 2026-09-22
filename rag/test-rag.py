@@ -1,19 +1,14 @@
-import json
 from datetime import datetime
-
-# ============================================
-# IMPORT YOUR FUNCTIONS
-# ============================================
-from langchain import hub
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-
+from langchain_ollama import ChatOllama
+from langchainhub import Client
+import rag.raptor as raptor
 from rag.raptor import (
     RaptorPipeline,
-    recursive_embed_cluster_summarize,
 )
-from rag.raptor import get_documents as original_get_documents
+
+hub = Client()
 
 
 # ============================================
@@ -43,7 +38,6 @@ def fake_get_documents(user):
 
 
 # Override the original function
-import rag.raptor as raptor
 raptor.get_documents = fake_get_documents
 
 

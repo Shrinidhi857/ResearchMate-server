@@ -1,306 +1,343 @@
-from flask import Blueprint, request, jsonify
+from fastapi import APIRouter, Depends, Request, Query
+from fastapi.responses import JSONResponse
 from datetime import datetime
-from app.extensions import db
-from app.models import User
-from app.auth.utils import admin_required
+from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+from app.database import get_db, SessionLocal
+from app.models.models import User
+from app.auth.utils import get_current_admin_user
 
-# Admin email - set this as admin
+router = APIRouter(tags=["Admin"])
+admin_bp = router
+
 ADMIN_EMAIL = "shrinidhiachar857@gmail.com"
-
-
-@admin_bp.before_request
-def handle_preflight():
-    """Handle CORS preflight requests"""
-    if request.method == "OPTIONS":
-        response = jsonify({'status': 'ok'})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-        response.headers.add("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
-        return response, 200
 
 
 def initialize_admin():
     """Initialize admin user if not already set"""
+    db = SessionLocal()
     try:
-        admin_user = User.query.filter_by(email=ADMIN_EMAIL).first()
+        admin_user = db.query(User).filter(User.email == ADMIN_EMAIL).first()
         if admin_user and not admin_user.is_admin:
             admin_user.is_admin = True
-            db.session.commit()
+            db.commit()
             print(f"✅ Admin initialized: {ADMIN_EMAIL}")
         elif admin_user and admin_user.is_admin:
             print(f"✅ Admin already set: {ADMIN_EMAIL}")
     except Exception as e:
         print(f"⚠️ Could not initialize admin: {e}")
+    finally:
+        db.close()
 
 
 # ============================================================================
 # USER MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@admin_bp.route('/users', methods=['GET'])
-@admin_required
-def get_all_users(current_user):
+@router.get("/users")
+def get_all_users(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1),
+    search: str = Query(""),
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Fetch all users with pagination and filtering"""
     try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        search = request.args.get('search', '', type=str)
-        
-        query = User.query
-        
-        # Search by email or name
+        query = db.query(User)
+
         if search:
             query = query.filter(
                 (User.email.ilike(f"%{search}%")) |
                 (User.first_name.ilike(f"%{search}%")) |
                 (User.last_name.ilike(f"%{search}%"))
             )
-        
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-        
-        users_data = [user.to_dict() for user in pagination.items]
-        
-        return jsonify({
-            'users': users_data,
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'current_page': page,
-            'per_page': per_page
-        }), 200
-        
+
+        total = query.count()
+        pages = (total + per_page - 1) // per_page if per_page > 0 else 0
+        users_items = query.offset((page - 1) * per_page).limit(per_page).all()
+        users_data = [user.to_dict() for user in users_items]
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'users': users_data,
+                'total': total,
+                'pages': pages,
+                'current_page': page,
+                'per_page': per_page
+            }
+        )
     except Exception as e:
-        return jsonify({'error': f'Failed to fetch users: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Failed to fetch users: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>', methods=['GET'])
-@admin_required
-def get_user_details(current_user, user_id):
+@router.get("/users/{user_id}")
+def get_user_details(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Fetch detailed user information including token usage"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
         user_info = user.to_dict()
-        user_info['projects_count'] = len(user.projects) if hasattr(user, 'projects') else 0
-        user_info['documents_count'] = len(user.documents) if hasattr(user, 'documents') else 0
-        user_info['sessions_count'] = len(user.sessions) if hasattr(user, 'sessions') else 0
-        
-        return jsonify({
-            'user': user_info
-        }), 200
-        
+        user_info['projects_count'] = len(user.projects) if hasattr(user, 'projects') and user.projects else 0
+        user_info['documents_count'] = len(user.documents) if hasattr(user, 'documents') and user.documents else 0
+        user_info['sessions_count'] = len(user.sessions) if hasattr(user, 'sessions') and user.sessions else 0
+
+        return JSONResponse(status_code=200, content={'user': user_info})
     except Exception as e:
-        return jsonify({'error': f'Failed to fetch user details: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Failed to fetch user details: {str(e)}'})
 
 
 # ============================================================================
 # TOKEN MANAGEMENT ENDPOINTS
 # ============================================================================
 
-@admin_bp.route('/users/<int:user_id>/tokens', methods=['GET'])
-@admin_required
-def get_user_tokens(current_user, user_id):
+@router.get("/users/{user_id}/tokens")
+def get_user_tokens(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Get token usage for a specific user"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        return jsonify({
-            'user_id': user_id,
-            'email': user.email,
-            'tokens': user.tokens,
-            'created_at': user.created_at.isoformat(),
-            'last_updated': user.updated_at.isoformat()
-        }), 200
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'user_id': user_id,
+                'email': user.email,
+                'tokens': user.tokens,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'last_updated': user.updated_at.isoformat() if user.updated_at else None
+            }
+        )
     except Exception as e:
-        return jsonify({'error': f'Failed to fetch token info: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Failed to fetch token info: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/tokens/add', methods=['POST'])
-@admin_required
-def add_user_tokens(current_user, user_id):
+@router.post("/users/{user_id}/tokens/add")
+async def add_user_tokens(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Add tokens to a user account"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        data = request.get_json()
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
         amount = data.get('amount', 0)
         reason = data.get('reason', 'Admin token addition')
-        
+
         if not isinstance(amount, int) or amount <= 0:
-            return jsonify({'error': 'Amount must be a positive integer'}), 400
-        
+            return JSONResponse(status_code=400, content={'error': 'Amount must be a positive integer'})
+
         previous_tokens = user.tokens
         user.add_tokens(amount)
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'Added {amount} tokens to {user.email}',
-            'user_id': user_id,
-            'previous_tokens': previous_tokens,
-            'new_tokens': user.tokens,
-            'amount_added': amount,
-            'reason': reason
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'Added {amount} tokens to {user.email}',
+                'user_id': user_id,
+                'previous_tokens': previous_tokens,
+                'new_tokens': user.tokens,
+                'amount_added': amount,
+                'reason': reason
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to add tokens: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to add tokens: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/tokens/deduct', methods=['POST'])
-@admin_required
-def deduct_user_tokens(current_user, user_id):
+@router.post("/users/{user_id}/tokens/deduct")
+async def deduct_user_tokens(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Deduct tokens from a user account"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        data = request.get_json()
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
         amount = data.get('amount', 0)
         reason = data.get('reason', 'Admin token deduction')
-        
+
         if not isinstance(amount, int) or amount <= 0:
-            return jsonify({'error': 'Amount must be a positive integer'}), 400
-        
+            return JSONResponse(status_code=400, content={'error': 'Amount must be a positive integer'})
+
         previous_tokens = user.tokens
         success = user.deduct_tokens(amount)
-        
+
         if not success:
-            return jsonify({
-                'error': f'Insufficient tokens. User has {user.tokens} but requested {amount}'
-            }), 400
-        
+            return JSONResponse(
+                status_code=400,
+                content={'error': f'Insufficient tokens. User has {user.tokens} but requested {amount}'}
+            )
+
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'Deducted {amount} tokens from {user.email}',
-            'user_id': user_id,
-            'previous_tokens': previous_tokens,
-            'new_tokens': user.tokens,
-            'amount_deducted': amount,
-            'reason': reason
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'Deducted {amount} tokens from {user.email}',
+                'user_id': user_id,
+                'previous_tokens': previous_tokens,
+                'new_tokens': user.tokens,
+                'amount_deducted': amount,
+                'reason': reason
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to deduct tokens: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to deduct tokens: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/tokens/set', methods=['POST'])
-@admin_required
-def set_user_tokens(current_user, user_id):
+@router.post("/users/{user_id}/tokens/set")
+async def set_user_tokens(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Set tokens to a specific amount"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        data = request.get_json()
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
         amount = data.get('amount', 0)
         reason = data.get('reason', 'Admin token reset')
-        
+
         if not isinstance(amount, int) or amount < 0:
-            return jsonify({'error': 'Amount must be a non-negative integer'}), 400
-        
+            return JSONResponse(status_code=400, content={'error': 'Amount must be a non-negative integer'})
+
         previous_tokens = user.tokens
         user.tokens = amount
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'Set tokens to {amount} for {user.email}',
-            'user_id': user_id,
-            'previous_tokens': previous_tokens,
-            'new_tokens': user.tokens,
-            'reason': reason
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'Set tokens to {amount} for {user.email}',
+                'user_id': user_id,
+                'previous_tokens': previous_tokens,
+                'new_tokens': user.tokens,
+                'reason': reason
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to set tokens: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to set tokens: {str(e)}'})
 
 
 # ============================================================================
 # ANALYTICS & INSIGHTS ENDPOINTS
 # ============================================================================
 
-@admin_bp.route('/analytics', methods=['GET'])
-@admin_required
-def get_analytics(current_user):
+@router.get("/analytics")
+def get_analytics(
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Get overall platform analytics"""
     try:
-        total_users = User.query.count()
-        verified_users = User.query.filter_by(is_verified=True).count()
-        admin_users = User.query.filter_by(is_admin=True).count()
-        
-        # Token statistics
-        total_tokens = db.session.query(func.sum(User.tokens)).scalar() or 0
-        avg_tokens = db.session.query(func.avg(User.tokens)).scalar() or 0
-        
-        # Most recent users
-        recent_users = User.query.order_by(User.created_at.desc()).limit(5).all()
-        
-        return jsonify({
-            'summary': {
-                'total_users': total_users,
-                'verified_users': verified_users,
-                'admin_users': admin_users,
-                'unverified_users': total_users - verified_users
-            },
-            'token_stats': {
-                'total_tokens_issued': int(total_tokens),
-                'average_tokens_per_user': round(float(avg_tokens), 2),
-                'total_token_pool': int(total_tokens)
-            },
-            'recent_users': [user.to_dict() for user in recent_users],
-            'timestamp': datetime.utcnow().isoformat()
-        }), 200
-        
+        total_users = db.query(User).count()
+        verified_users = db.query(User).filter(User.is_verified.is_(True)).count()
+        admin_users = db.query(User).filter(User.is_admin.is_(True)).count()
+
+        total_tokens = db.query(func.sum(User.tokens)).scalar() or 0
+        avg_tokens = db.query(func.avg(User.tokens)).scalar() or 0
+
+        recent_users = db.query(User).order_by(User.created_at.desc()).limit(5).all()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'summary': {
+                    'total_users': total_users,
+                    'verified_users': verified_users,
+                    'admin_users': admin_users,
+                    'unverified_users': total_users - verified_users
+                },
+                'token_stats': {
+                    'total_tokens_issued': int(total_tokens),
+                    'average_tokens_per_user': round(float(avg_tokens), 2),
+                    'total_token_pool': int(total_tokens)
+                },
+                'recent_users': [user.to_dict() for user in recent_users],
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        )
     except Exception as e:
-        return jsonify({'error': f'Failed to fetch analytics: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Failed to fetch analytics: {str(e)}'})
 
 
-@admin_bp.route('/token-usage-report', methods=['GET'])
-@admin_required
-def get_token_usage_report(current_user):
+@router.get("/token-usage-report")
+def get_token_usage_report(
+    sort_by: str = Query('tokens'),
+    order: str = Query('desc'),
+    limit: int = Query(100),
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Get detailed token usage report"""
     try:
-        sort_by = request.args.get('sort_by', 'tokens', type=str)  # tokens, email, created_at
-        order = request.args.get('order', 'desc', type=str)  # asc, desc
-        limit = request.args.get('limit', 100, type=int)
-        
-        query = User.query
-        
+        query = db.query(User)
+
         if sort_by == 'tokens':
             query = query.order_by(User.tokens.desc() if order == 'desc' else User.tokens.asc())
         elif sort_by == 'email':
             query = query.order_by(User.email.asc() if order == 'asc' else User.email.desc())
         elif sort_by == 'created_at':
             query = query.order_by(User.created_at.desc() if order == 'desc' else User.created_at.asc())
-        
+
         users = query.limit(limit).all()
-        
+
         report = {
             'total_users_in_report': len(users),
-            'total_tokens': sum(u.tokens for u in users),
-            'average_tokens': round(sum(u.tokens for u in users) / len(users), 2) if users else 0,
+            'total_tokens': sum(u.tokens for u in users if u.tokens),
+            'average_tokens': round(sum(u.tokens for u in users if u.tokens) / len(users), 2) if users else 0,
             'users': [
                 {
                     'id': u.id,
@@ -308,153 +345,165 @@ def get_token_usage_report(current_user):
                     'tokens': u.tokens,
                     'is_verified': u.is_verified,
                     'is_admin': u.is_admin,
-                    'created_at': u.created_at.isoformat()
+                    'created_at': u.created_at.isoformat() if u.created_at else None
                 }
                 for u in users
             ],
             'generated_at': datetime.utcnow().isoformat()
         }
-        
-        return jsonify(report), 200
-        
+
+        return JSONResponse(status_code=200, content=report)
     except Exception as e:
-        return jsonify({'error': f'Failed to generate report: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Failed to generate report: {str(e)}'})
 
 
 # ============================================================================
 # USER MANAGEMENT (Verification, Roles, etc.)
 # ============================================================================
 
-@admin_bp.route('/users/<int:user_id>/verify', methods=['POST'])
-@admin_required
-def verify_user(current_user, user_id):
+@router.post("/users/{user_id}/verify")
+def verify_user(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Manually verify a user"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
         user.is_verified = True
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'User {user.email} verified',
-            'user': user.to_dict()
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'User {user.email} verified',
+                'user': user.to_dict()
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to verify user: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to verify user: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/grant-admin', methods=['POST'])
-@admin_required
-def grant_admin(current_user, user_id):
+@router.post("/users/{user_id}/grant-admin")
+def grant_admin(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Grant admin access to a user"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
         user.is_admin = True
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'Admin access granted to {user.email}',
-            'user': user.to_dict()
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'Admin access granted to {user.email}',
+                'user': user.to_dict()
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to grant admin: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to grant admin: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/revoke-admin', methods=['POST'])
-@admin_required
-def revoke_admin(current_user, user_id):
+@router.post("/users/{user_id}/revoke-admin")
+def revoke_admin(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Revoke admin access from a user"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
         if user.email == ADMIN_EMAIL:
-            return jsonify({'error': 'Cannot revoke admin from primary admin account'}), 403
-        
+            return JSONResponse(status_code=403, content={'error': 'Cannot revoke admin from primary admin account'})
+
         user.is_admin = False
         user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'Admin access revoked from {user.email}',
-            'user': user.to_dict()
-        }), 200
-        
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': f'Admin access revoked from {user.email}',
+                'user': user.to_dict()
+            }
+        )
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to revoke admin: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to revoke admin: {str(e)}'})
 
 
-@admin_bp.route('/users/<int:user_id>/delete', methods=['DELETE'])
-@admin_required
-def delete_user(current_user, user_id):
+@router.delete("/users/{user_id}/delete")
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
     """Delete a user account"""
     try:
-        user = User.query.get(user_id)
-        
+        user = db.query(User).filter(User.id == user_id).first()
+
         if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
+            return JSONResponse(status_code=404, content={'error': 'User not found'})
+
         if user.email == ADMIN_EMAIL:
-            return jsonify({'error': 'Cannot delete primary admin account'}), 403
-        
+            return JSONResponse(status_code=403, content={'error': 'Cannot delete primary admin account'})
+
         email = user.email
-        db.session.delete(user)
-        db.session.commit()
-        
-        return jsonify({
-            'message': f'User {email} deleted successfully'
-        }), 200
-        
+        db.delete(user)
+        db.commit()
+
+        return JSONResponse(status_code=200, content={'message': f'User {email} deleted successfully'})
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to delete user: {str(e)}'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Failed to delete user: {str(e)}'})
 
 
-# ============================================================================
-# ADMIN INFO ENDPOINT
-# ============================================================================
-
-@admin_bp.route('/info', methods=['GET'])
-@admin_required
-def get_admin_info(current_user):
+@router.get("/info")
+def get_admin_info(current_user: User = Depends(get_current_admin_user)):
     """Get admin information and available endpoints"""
-    return jsonify({
-        'admin': current_user.to_dict(),
-        'admin_email_configured': ADMIN_EMAIL,
-        'available_endpoints': {
-            'user_management': {
-                'GET /admin/users': 'Fetch all users with pagination',
-                'GET /admin/users/<user_id>': 'Get specific user details',
-                'POST /admin/users/<user_id>/verify': 'Verify a user',
-                'POST /admin/users/<user_id>/grant-admin': 'Grant admin access',
-                'POST /admin/users/<user_id>/revoke-admin': 'Revoke admin access',
-                'DELETE /admin/users/<user_id>/delete': 'Delete a user'
-            },
-            'token_management': {
-                'GET /admin/users/<user_id>/tokens': 'Get user token balance',
-                'POST /admin/users/<user_id>/tokens/add': 'Add tokens to user',
-                'POST /admin/users/<user_id>/tokens/deduct': 'Deduct tokens from user',
-                'POST /admin/users/<user_id>/tokens/set': 'Set token balance'
-            },
-            'analytics': {
-                'GET /admin/analytics': 'Get platform analytics',
-                'GET /admin/token-usage-report': 'Get token usage report'
+    return JSONResponse(
+        status_code=200,
+        content={
+            'admin': current_user.to_dict(),
+            'admin_email_configured': ADMIN_EMAIL,
+            'available_endpoints': {
+                'user_management': {
+                    'GET /admin/users': 'Fetch all users with pagination',
+                    'GET /admin/users/<user_id>': 'Get specific user details',
+                    'POST /admin/users/<user_id>/verify': 'Verify a user',
+                    'POST /admin/users/<user_id>/grant-admin': 'Grant admin access',
+                    'POST /admin/users/<user_id>/revoke-admin': 'Revoke admin access',
+                    'DELETE /admin/users/<user_id>/delete': 'Delete a user'
+                },
+                'token_management': {
+                    'GET /admin/users/<user_id>/tokens': 'Get user token balance',
+                    'POST /admin/users/<user_id>/tokens/add': 'Add tokens to user',
+                    'POST /admin/users/<user_id>/tokens/deduct': 'Deduct tokens from user',
+                    'POST /admin/users/<user_id>/tokens/set': 'Set token balance'
+                },
+                'analytics': {
+                    'GET /admin/analytics': 'Get platform analytics',
+                    'GET /admin/token-usage-report': 'Get token usage report'
+                }
             }
         }
-    }), 200
+    )

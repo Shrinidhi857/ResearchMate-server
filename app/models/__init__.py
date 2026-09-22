@@ -1,10 +1,10 @@
 from app.models.models import (
-    User, 
-    UserSession, 
-    Document, 
-    Project, 
-    Message, 
-    Response, 
+    User,
+    UserSession,
+    Document,
+    Project,
+    Message,
+    Response,
     PaperBucket,
     Paper
 )

@@ -1,117 +1,118 @@
-from flask import Blueprint, request, jsonify, Response
-from app.auth.utils import token_required
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from app.models.models import User
+from app.auth.utils import get_current_user
 from service.auto_site import auto_cite_paragraph
-import time
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 import json
+import os
+import asyncio
 
-ai_bp = Blueprint('ai', __name__)
+router = APIRouter(tags=["AI"])
+ai_bp = router
 
 
-@ai_bp.route('/summarize', methods=['POST'])
-@token_required
-def summarize_api(current_user):
+def summarize_research_paper(text: str) -> dict:
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            api_key=os.getenv("GEMINI_API_KEY"),
+            temperature=0.3
+        )
+        prompt = ChatPromptTemplate.from_template("""
+        You are an expert research assistant. Produce a structured summary of the following academic paper text:
+
+        Text:
+        {text}
+
+        Provide the summary with:
+        - Problem Statement
+        - Methodology
+        - Key Findings
+        - Conclusion
+        """)
+        chain = prompt | llm | StrOutputParser()
+        result = chain.invoke({"text": text[:10000]})
+        return {"success": True, "data": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/summarize")
+async def summarize_api(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """API endpoint to summarize research paper text into structured JSON"""
-    data = request.get_json()
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
 
     if not data or 'text' not in data:
-        return jsonify({"message": "Missing 'text' in request body"}), 400
+        return JSONResponse(status_code=400, content={"message": "Missing 'text' in request body"})
 
     result = summarize_research_paper(data['text'])
 
-    if result["success"]:
-        return jsonify({"message": "Success", "summary": result["data"]}), 200
+    if result.get("success"):
+        return JSONResponse(status_code=200, content={"message": "Success", "summary": result["data"]})
     elif "raw_output" in result:
-        return jsonify({
+        return JSONResponse(status_code=200, content={
             "message": "Model did not return perfect JSON",
             "raw_output": result["raw_output"]
-        }), 200
+        })
     else:
-        return jsonify({"message": f"Error: {result['error']}"}), 500
+        return JSONResponse(status_code=500, content={"message": f"Error: {result.get('error')}"})
 
-""" 
-@ai_bp.route('/ieee-ref', methods=['POST'])
-@token_required
-def generate_ieee_reference(current_user):
+
+@router.post("/auto_cite")
+async def auto_cite_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     try:
-        data = request.get_json()
-
-        if not isinstance(data, list) or len(data) == 0:
-            return jsonify({
-                "success": False,
-                "message": "Request body must be a non-empty list"
-            }), 400
-
-        first_item = data[0]
-
-        if 'doc_id' not in first_item:
-            return jsonify({
-                "success": False,
-                "message": "Missing 'doc_id' in the first object"
-            }), 400
-
-        doc_id = first_item['doc_id']
-        result = generate_ieee_reference_for_doc(current_user, doc_id)
-
-        return result """
-""" 
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "message": "Server error while generating IEEE reference",
-            "error": str(e)
-        }), 500 """
-
-""" 
-@ai_bp.route('/generate_reference/<string:doc_id>', methods=['POST'])
-@token_required
-def generate_reference(current_user, doc_id):
-    return generate_ieee_reference_for_doc(current_user, doc_id)
-
-
-@ai_bp.route('/auto_cite', methods=['POST'])
-@token_required
-def auto_cite_endpoint(current_user):
-    try:
-        data = request.get_json()
+        data = await request.json()
         paragraph = data.get("paragraph", "")
         references = data.get("references", {})
 
         if not paragraph or not references:
-            return jsonify({"message": "Missing paragraph or references"}), 400
+            return JSONResponse(status_code=400, content={"message": "Missing paragraph or references"})
 
         result = auto_cite_paragraph(paragraph, references)
-
-        return jsonify({
-            "message": "Success",
-            "cited_paragraph": result
-        }), 200
-
+        return JSONResponse(status_code=200, content={"message": "Success", "cited_paragraph": result})
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"message": f"Error: {str(e)}"}), 500
+        return JSONResponse(status_code=500, content={"message": f"Error: {str(e)}"})
 
- """
-@ai_bp.route('/test', methods=['GET'])
-def test_stream():
-    def generate():
+
+@router.get("/test")
+async def test_stream():
+    async def generate():
         for i in range(5):
             msg = {"phase": i + 1, "status": "running", "message": f"Processing phase {i + 1}..."}
             yield f"data: {json.dumps(msg)}\n\n"
-            time.sleep(1)
+            await asyncio.sleep(1)
         yield f"data: {json.dumps({'phase': 6, 'status': 'complete', 'message': '✅ Test stream finished successfully!'})}\n\n"
 
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['Connection'] = 'keep-alive'
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    return response
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
 
 
-@ai_bp.route('/start', methods=['POST'])
-def start_analysis():
-    data = request.json
+@router.post("/start")
+async def start_analysis(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
     print("Received from frontend:", data)
-    return {"status": "ok", "message": "Processing started!"}
+    return JSONResponse(status_code=200, content={"status": "ok", "message": "Processing started!"})

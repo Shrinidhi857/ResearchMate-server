@@ -1,30 +1,38 @@
-from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger, DateTime, Text, ForeignKey, Table, JSON
+from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import uuid
-from app.extensions import db
+from app.database import Base
 
 
-
-class User(db.Model):
+class User(Base):
     __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=True)
-    first_name = db.Column(db.String(80), nullable=True)
-    last_name = db.Column(db.String(80), nullable=True)
-    google_id = db.Column(db.String(100), unique=True, nullable=True)
-    is_verified = db.Column(db.Boolean, default=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    tokens = db.Column(db.BigInteger, default=0)  
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    def set_password(self, password):
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(120), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=True)
+    first_name = Column(String(80), nullable=True)
+    last_name = Column(String(80), nullable=True)
+    google_id = Column(String(100), unique=True, nullable=True)
+    is_verified = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
+    tokens = Column(BigInteger, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    sessions = relationship('UserSession', back_populates='user', cascade='all, delete-orphan')
+    documents = relationship('Document', back_populates='user', cascade='all, delete-orphan')
+    projects = relationship('Project', secondary='project_users', back_populates='users')
+
+    def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
 
-    def check_password(self, password):
+    def check_password(self, password: str) -> bool:
+        if not self.password_hash:
+            return False
         return check_password_hash(self.password_hash, password)
 
     def add_tokens(self, amount: int):
@@ -33,7 +41,7 @@ class User(db.Model):
         self.tokens += amount
         return self.tokens
 
-    def deduct_tokens(self, amount: int):
+    def deduct_tokens(self, amount: int) -> bool:
         if self.tokens is None:
             self.tokens = 0
         if self.tokens >= amount:
@@ -50,70 +58,78 @@ class User(db.Model):
             'is_verified': self.is_verified,
             'is_admin': self.is_admin,
             'tokens': self.tokens,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-class UserSession(db.Model):
-    __tablename__ = 'user_sessions'   
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    token = db.Column(db.String(500), unique=True, nullable=False)
-    expires_at = db.Column(db.DateTime, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    user = db.relationship('User', backref=db.backref('sessions', lazy=True))
+
+class UserSession(Base):
+    __tablename__ = 'user_sessions'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    token = Column(String(500), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship('User', back_populates='sessions')
 
 
-
-class Document(db.Model):
+class Document(Base):
     __tablename__ = "documents"
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(255), nullable=True)  # use title instead of name
-    doc_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    content = db.Column(db.Text, nullable=False)  # PDF text content
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    user = db.relationship("User", backref=db.backref("documents", lazy=True))
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=True)
+    doc_id = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-def validate_email(email):
+    user = relationship("User", back_populates="documents")
+
+
+def validate_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
+    return bool(re.match(pattern, email))
 
-def validate_password(password):
-    return len(password) >= 8     
 
-project_users = db.Table(
+def validate_password(password: str) -> bool:
+    return len(password) >= 8
+
+
+project_users = Table(
     'project_users',
-    db.Column('project_id', db.Integer, db.ForeignKey('projects.id')),
-    db.Column('user_id', db.Integer, db.ForeignKey('users.id'))
+    Base.metadata,
+    Column('project_id', Integer, ForeignKey('projects.id'), primary_key=True),
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True)
 )
 
 
-class Project(db.Model):
+class Project(Base):
     __tablename__ = "projects"
 
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
-    project_name = db.Column(db.String(255), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    project_name = Column(String(255), nullable=False)
 
-    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    owner = db.relationship("User")
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner = relationship("User", foreign_keys=[owner_id])
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    users = db.relationship(
+    users = relationship(
         "User",
         secondary=project_users,
-        backref=db.backref("projects", lazy=True)
+        back_populates="projects"
     )
 
-    messages = db.relationship("Message", backref="project", cascade="all, delete-orphan")
-    responses = db.relationship("Response", backref="project", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="project", cascade="all, delete-orphan")
+    responses = relationship("Response", back_populates="project", cascade="all, delete-orphan")
+    paper_bucket = relationship("PaperBucket", back_populates="project", uselist=False, cascade="all, delete-orphan")
+    paper = relationship("Paper", back_populates="project", uselist=False, cascade="all, delete-orphan")
 
-    vector_status = db.Column(db.String(20), default='not_started') # not_started, processing, ready, error
+    vector_status = Column(String(20), default='not_started')  # not_started, processing, ready, error
 
     def to_dict(self):
         return {
@@ -127,16 +143,17 @@ class Project(db.Model):
         }
 
 
-class Message(db.Model):
+class Message(Base):
     __tablename__ = "messages"
 
-    id = db.Column(db.Integer, primary_key=True)
-    message_number = db.Column(db.Integer, nullable=False)
-    message_sender = db.Column(db.String(120), nullable=False)
-    message_content = db.Column(db.Text, nullable=False)
-    message_timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    message_number = Column(Integer, nullable=False)
+    message_sender = Column(String(120), nullable=False)
+    message_content = Column(Text, nullable=False)
+    message_timestamp = Column(DateTime, default=datetime.utcnow)
 
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project = relationship("Project", back_populates="messages")
 
     def to_dict(self):
         return {
@@ -148,16 +165,18 @@ class Message(db.Model):
             'project_id': self.project_id
         }
 
-class Response(db.Model):
+
+class Response(Base):
     __tablename__ = "responses"
 
-    id = db.Column(db.Integer, primary_key=True)
-    response_id = db.Column(db.String(36), default=lambda: str(uuid.uuid4()), unique=True)
-    summary = db.Column(db.Text, nullable=False)
-    response_by = db.Column(db.String(120), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    response_id = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    summary = Column(Text, nullable=False)
+    response_by = Column(String(120), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    project = relationship("Project", back_populates="responses")
 
     def to_dict(self):
         return {
@@ -170,16 +189,16 @@ class Response(db.Model):
         }
 
 
-class PaperBucket(db.Model):
+class PaperBucket(Base):
     __tablename__ = "paper_buckets"
 
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, unique=True)
-    paper_ids = db.Column(db.JSON, default=list, nullable=False)  # Store array of paper/document IDs
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, unique=True)
+    paper_ids = Column(JSON, default=list, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    project = db.relationship("Project", backref=db.backref("paper_bucket", uselist=False, cascade="all, delete-orphan"))
+    project = relationship("Project", back_populates="paper_bucket")
 
     def to_dict(self):
         return {
@@ -191,16 +210,16 @@ class PaperBucket(db.Model):
         }
 
 
-class Paper(db.Model):
+class Paper(Base):
     __tablename__ = "papers"
 
-    id = db.Column(db.Integer, primary_key=True)
-    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, unique=True)
-    content = db.Column(db.Text, nullable=True)  # LaTeX content
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, unique=True)
+    content = Column(Text, nullable=True)  # LaTeX content
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    project = db.relationship("Project", backref=db.backref("paper", uselist=False, cascade="all, delete-orphan"))
+    project = relationship("Project", back_populates="paper")
 
     def to_dict(self):
         return {

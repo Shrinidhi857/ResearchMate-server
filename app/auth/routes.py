@@ -1,56 +1,50 @@
-from flask import Blueprint, request, jsonify, url_for, redirect, current_app
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.orm import Session
 from datetime import datetime
-from app.extensions import db, oauth
-from app.models import User, UserSession
+from typing import Optional
+import urllib.parse
+import requests
+
+from app.database import get_db
+from app.config import Config
+from app.models.models import User, UserSession
 from app.auth.utils import (
-    validate_email, 
-    validate_password, 
-    generate_token, 
-    token_required
+    validate_email,
+    validate_password,
+    generate_token,
+    get_current_user
 )
 
-auth_bp = Blueprint('auth', __name__)
-
-# Register Google OAuth
-google = oauth.register(
-    name='google',
-    client_id=None,  # Will be set from config
-    client_secret=None,  # Will be set from config
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'}
-)
+router = APIRouter(tags=["Auth"])
+auth_bp = router
 
 
-@auth_bp.record
-def record_params(setup_state):
-    """Initialize Google OAuth with config values"""
-    app = setup_state.app
-    google.client_id = app.config['GOOGLE_CLIENT_ID']
-    google.client_secret = app.config['GOOGLE_CLIENT_SECRET']
+@router.post("/register")
+async def register(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
 
-
-@auth_bp.route('/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    
     if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'No data provided'})
+
     email = data.get('email', '').lower().strip()
     password = data.get('password', '')
     first_name = data.get('first_name', '').strip()
     last_name = data.get('last_name', '').strip()
-    
+
     if not email or not validate_email(email):
-        return jsonify({'error': 'Valid email is required'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'Valid email is required'})
+
     if not password or not validate_password(password):
-        return jsonify({'error': 'Password must be at least 8 characters long'}), 400
-    
-    existing_user = User.query.filter_by(email=email).first()
+        return JSONResponse(status_code=400, content={'error': 'Password must be at least 8 characters long'})
+
+    existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
-        return jsonify({'error': 'User with this email already exists'}), 409
-    
+        return JSONResponse(status_code=409, content={'error': 'User with this email already exists'})
+
     try:
         user = User(
             email=email,
@@ -59,96 +53,153 @@ def register():
             is_verified=False
         )
         user.set_password(password)
-        user.add_tokens(30000)  # ✅ Award 30k tokens to new user
-        
-        db.session.add(user)
-        db.session.commit()
-        
+        user.add_tokens(30000)  # Award 30k tokens to new user
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
         token = generate_token(user.id)
-        
+
         session_record = UserSession(
             user_id=user.id,
             token=token,
-            expires_at=datetime.utcnow() + current_app.config['JWT_ACCESS_TOKEN_EXPIRES']
+            expires_at=datetime.utcnow() + Config.JWT_ACCESS_TOKEN_EXPIRES
         )
-        db.session.add(session_record)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'User registered successfully',
-            'token': token,
-            'user': user.to_dict()
-        }), 201
-        
+        db.add(session_record)
+        db.commit()
+
+        return JSONResponse(
+            status_code=201,
+            content={
+                'message': 'User registered successfully',
+                'token': token,
+                'user': user.to_dict()
+            }
+        )
+
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Registration failed'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Registration failed: {str(e)}'})
 
 
-@auth_bp.route('/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    
+@router.post("/login")
+async def login(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
+
     if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'No data provided'})
+
     email = data.get('email', '').lower().strip()
     password = data.get('password', '')
-    
+
     if not email or not password:
-        return jsonify({'error': 'Email and password are required'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'Email and password are required'})
+
     try:
-        user = User.query.filter_by(email=email).first()
-        
+        user = db.query(User).filter(User.email == email).first()
+
         if not user or not user.check_password(password):
-            return jsonify({'error': 'Invalid credentials'}), 401
-        
+            return JSONResponse(status_code=401, content={'error': 'Invalid credentials'})
+
         token = generate_token(user.id)
-        
+
         session_record = UserSession(
             user_id=user.id,
             token=token,
-            expires_at=datetime.utcnow() + current_app.config['JWT_ACCESS_TOKEN_EXPIRES']
+            expires_at=datetime.utcnow() + Config.JWT_ACCESS_TOKEN_EXPIRES
         )
-        db.session.add(session_record)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Login successful',
-            'token': token,
-            'user': user.to_dict()
-        }), 200
-        
+        db.add(session_record)
+        db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': 'Login successful',
+                'token': token,
+                'user': user.to_dict()
+            }
+        )
+
     except Exception as e:
-        return jsonify({'error': 'Login failed'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Login failed: {str(e)}'})
 
 
-@auth_bp.route('/google')
-def google_auth():
-    redirect_uri = url_for('auth.google_callback', _external=True)
-    return google.authorize_redirect(redirect_uri)
+@router.get("/google")
+def google_auth(request: Request):
+    client_id = Config.GOOGLE_CLIENT_ID
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Google Client ID not configured")
+
+    base_url = str(request.base_url).rstrip('/')
+    redirect_uri = f"{base_url}/auth/google/callback"
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account"
+    }
+    url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    return RedirectResponse(url=url)
 
 
-@auth_bp.route('/google/callback')
-def google_callback():
+@router.get("/google/callback")
+def google_callback(
+    request: Request,
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     try:
-        frontend_url = current_app.config['FRONTEND_URL']
-        token = google.authorize_access_token()
+        if error:
+            return JSONResponse(status_code=400, content={'error': f'Google OAuth error: {error}'})
+        if not code:
+            return JSONResponse(status_code=400, content={'error': 'Missing authorization code'})
 
-        resp = google.get("https://www.googleapis.com/oauth2/v3/userinfo")
-        user_info = resp.json()
-                    
+        frontend_url = Config.FRONTEND_URL
+        base_url = str(request.base_url).rstrip('/')
+        redirect_uri = f"{base_url}/auth/google/callback"
+
+        # Exchange authorization code for token
+        token_resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": Config.GOOGLE_CLIENT_ID,
+                "client_secret": Config.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            timeout=10
+        )
+        token_json = token_resp.json()
+        access_token = token_json.get("access_token")
+        if not access_token:
+            return JSONResponse(status_code=400, content={'error': 'Failed to obtain access token from Google'})
+
+        # Fetch user info
+        userinfo_resp = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10
+        )
+        user_info = userinfo_resp.json()
         if not user_info:
-            return jsonify({'error': 'Failed to get user info from Google'}), 400
-        
+            return JSONResponse(status_code=400, content={'error': 'Failed to get user info from Google'})
+
         email = user_info.get('email')
         google_id = user_info.get('sub')
         first_name = user_info.get('given_name', '')
         last_name = user_info.get('family_name', '')
-        
-        user = User.query.filter_by(email=email).first()
-        
+
+        user = db.query(User).filter(User.email == email).first()
+
         if not user:
             user = User(
                 email=email,
@@ -157,112 +208,130 @@ def google_callback():
                 google_id=google_id,
                 is_verified=True
             )
-            user.add_tokens(30000)  # ✅ Award 30k tokens to new Google user
-            db.session.add(user)
+            user.add_tokens(30000)  # Award 30k tokens to new Google user
+            db.add(user)
         else:
             if not user.google_id:
                 user.google_id = google_id
                 user.is_verified = True
-        
-        db.session.commit()
-        
+
+        db.commit()
+        db.refresh(user)
+
         jwt_token = generate_token(user.id)
-        
+
         session_record = UserSession(
             user_id=user.id,
             token=jwt_token,
-            expires_at=datetime.utcnow() + current_app.config['JWT_ACCESS_TOKEN_EXPIRES']
+            expires_at=datetime.utcnow() + Config.JWT_ACCESS_TOKEN_EXPIRES
         )
-        db.session.add(session_record)
-        db.session.commit()
-        
-        return redirect(f"{frontend_url}/auth/success?token={jwt_token}")
-    
+        db.add(session_record)
+        db.commit()
+
+        return RedirectResponse(f"{frontend_url}/auth/success?token={jwt_token}")
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Google authentication failed: {str(e)}'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Google authentication failed: {str(e)}'})
 
 
-@auth_bp.route('/logout', methods=['POST'])
-@token_required
-def logout(current_user):
+@router.post("/logout")
+def logout(
+    authorization: Optional[str] = Header(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     try:
-        auth_header = request.headers.get('Authorization')
-        if auth_header:
-            token = auth_header.split(' ')[1]
-            
-            session_record = UserSession.query.filter_by(token=token).first()
+        if authorization:
+            parts = authorization.split(' ')
+            token = parts[1] if len(parts) > 1 else parts[0]
+            session_record = db.query(UserSession).filter(UserSession.token == token).first()
             if session_record:
-                db.session.delete(session_record)
-                db.session.commit()
-        
-        return jsonify({'message': 'Logged out successfully'}), 200
-        
+                db.delete(session_record)
+                db.commit()
+
+        return JSONResponse(status_code=200, content={'message': 'Logged out successfully'})
+
     except Exception as e:
-        return jsonify({'error': 'Logout failed'}), 500
+        return JSONResponse(status_code=500, content={'error': f'Logout failed: {str(e)}'})
 
 
-@auth_bp.route('/profile', methods=['GET'])
-@token_required
-def get_profile(current_user):
-    return jsonify({'user': current_user.to_dict()}), 200
+@router.get("/profile")
+def get_profile(current_user: User = Depends(get_current_user)):
+    return JSONResponse(status_code=200, content={'user': current_user.to_dict()})
 
 
-@auth_bp.route('/profile', methods=['PUT'])
-@token_required
-def update_profile(current_user):
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
+@router.put("/profile")
+async def update_profile(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     try:
-        if 'first_name' in data:
-            current_user.first_name = data['first_name'].strip()
-        if 'last_name' in data:
-            current_user.last_name = data['last_name'].strip()
-        
-        current_user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Profile updated successfully',
-            'user': current_user.to_dict()
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Profile update failed'}), 500
+        data = await request.json()
+    except Exception:
+        data = None
 
-
-@auth_bp.route('/change-password', methods=['POST'])
-@token_required
-def change_password(current_user):
-    data = request.get_json()
-    
     if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'No data provided'})
+
+    try:
+        if 'first_name' in data and data['first_name'] is not None:
+            current_user.first_name = data['first_name'].strip()
+        if 'last_name' in data and data['last_name'] is not None:
+            current_user.last_name = data['last_name'].strip()
+
+        current_user.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(current_user)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                'message': 'Profile updated successfully',
+                'user': current_user.to_dict()
+            }
+        )
+
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Profile update failed: {str(e)}'})
+
+
+@router.post("/change-password")
+async def change_password(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        data = await request.json()
+    except Exception:
+        data = None
+
+    if not data:
+        return JSONResponse(status_code=400, content={'error': 'No data provided'})
+
     current_password = data.get('current_password', '')
     new_password = data.get('new_password', '')
-    
+
     if not current_password or not new_password:
-        return jsonify({'error': 'Current password and new password are required'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'Current password and new password are required'})
+
     if not validate_password(new_password):
-        return jsonify({'error': 'New password must be at least 8 characters long'}), 400
-    
+        return JSONResponse(status_code=400, content={'error': 'New password must be at least 8 characters long'})
+
     try:
         if not current_user.check_password(current_password):
-            return jsonify({'error': 'Current password is incorrect'}), 401
-        
+            return JSONResponse(status_code=401, content={'error': 'Current password is incorrect'})
+
         current_user.set_password(new_password)
         current_user.updated_at = datetime.utcnow()
-        db.session.commit()
-        
-        return jsonify({'message': 'Password changed successfully'}), 200
-        
+        db.commit()
+
+        return JSONResponse(status_code=200, content={'message': 'Password changed successfully'})
+
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Password change failed'}), 500
+        db.rollback()
+        return JSONResponse(status_code=500, content={'error': f'Password change failed: {str(e)}'})

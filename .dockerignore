@@ -1,0 +1,46 @@
+# .dockerignore – files excluded from Docker build context
+
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Environment secrets – NEVER include in images
+.env
+
+# Test artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.log
+
+# Version control
+.git/
+.gitignore
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.DS_Store
+Thumbs.db
+
+# Documentation only
+*.md
+diagram.png
+logo.png
+
+# Temporary files
+tmp/
+temp/

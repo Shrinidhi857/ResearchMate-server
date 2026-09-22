@@ -1,0 +1,39 @@
+# requirements-ci.txt
+# Lightweight dependency set used by GitHub Actions CI.
+# Heavy ML packages (torch, umap, spacy, chromadb, transformers)
+# are NOT installed — they are stubbed out via sys.modules in conftest.py.
+
+# ── FastAPI core ───────────────────────────────────────────────────────────────
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+starlette>=0.27.0
+python-multipart>=0.0.6
+
+# ── Auth & Security ───────────────────────────────────────────────────────────
+Werkzeug>=2.3.7
+PyJWT==2.8.0
+Authlib>=1.2.1
+
+# ── Config & HTTP ─────────────────────────────────────────────────────────────
+python-dotenv==1.0.0
+requests>=2.31.0
+httpx>=0.24.0
+
+# ── ORM (SQLite used in tests — no psycopg2 needed) ──────────────────────────
+sqlalchemy>=2.0.0
+
+# ── LangChain / Gemini (pure-Python, no native deps) ─────────────────────────
+langchain-core
+langchain-google-genai
+google-generativeai
+
+# ── PDF generation (needed for /generate-pdf tests) ──────────────────────────
+reportlab
+
+# ── Testing & Linting ─────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
