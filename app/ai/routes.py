@@ -23,10 +23,10 @@ def summarize_research_paper(text: str) -> dict:
         )
         prompt = ChatPromptTemplate.from_template("""
         You are an expert research assistant. Produce a structured summary of the following academic paper text:
-        
+
         Text:
         {text}
-        
+
         Provide the summary with:
         - Problem Statement
         - Methodology

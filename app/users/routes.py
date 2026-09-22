@@ -64,16 +64,16 @@ async def check_tokens(
             data = await request.json()
         except Exception:
             data = {}
-        
+
         required_tokens = data.get("required_tokens", 0)
-        
+
         if required_tokens < 0:
             return JSONResponse(status_code=400, content={"error": "required_tokens must be positive"})
-        
+
         user_tokens = current_user.tokens if current_user.tokens is not None else 0
         has_enough = user_tokens >= required_tokens
         remaining = user_tokens - required_tokens if has_enough else 0
-        
+
         return JSONResponse(
             status_code=200,
             content={

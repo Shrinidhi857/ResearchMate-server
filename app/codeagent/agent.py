@@ -16,7 +16,7 @@ class AgentThought(BaseModel):
 
 class LaTeXAgent:
     """Agentic LaTeX Assistant that uses tools and reasons before acting"""
-    
+
     def __init__(self, llm: BaseLLM):
         self.llm = llm
         self.max_steps = AgentConfig.MAX_STEPS
@@ -30,13 +30,13 @@ class LaTeXAgent:
         else:
             docs_formatted = "\n".join([f"- ID: {d['id']}, Title: {d['title']}" for d in doc_list])
             doc_context = f"PROJECT DOCUMENTS AVAILABLE:\n{docs_formatted or 'No documents uploaded yet.'}"
-        
+
         # Add urgency warning if approaching max steps
         urgency_warning = ""
         if current_step >= max_steps * 0.7:  # 70% of max steps
             urgency_warning = f"\n⚠️ WARNING: You are at step {current_step}/{max_steps}. You MUST call 'none' tool soon to provide your final answer!\n"
-        
-        return f"""You are the 
+
+        return f"""You are the
          LaTeX Agent, an expert in research paper writing.
 Current Project: {project_name}
 {urgency_warning}
@@ -86,12 +86,12 @@ STEP LIMITS:
 
     async def run(self, user_request: str, project_id: str, context_fetcher: Any, document_ids: Optional[List[str]] = None) -> Dict[str, Any]:
         """The main Agentic ReAct loop"""
-        
+
         # 1. Fetch project info for the prompt
         project_info = await context_fetcher.get_project_info(project_id)
         project_name = project_info.get("name", "Untitled")
         doc_list = project_info.get("documents", [])
-        
+
         # Validate document IDs if provided
         if document_ids:
             valid_ids = {d['id'] for d in doc_list}
@@ -101,26 +101,26 @@ STEP LIMITS:
                     "error": f"Invalid document IDs: {', '.join(invalid_ids)}",
                     "steps": []
                 }
-        
+
         steps = []
-        
+
         # Track tool calls to detect loops
         tool_call_history = []
-        
+
         current_step = 0
         while current_step < self.max_steps:
             current_step += 1
-            
+
             # Construct prompt with optional document filtering and current step info
             system_prompt = self.get_system_prompt(project_name, doc_list, document_ids, current_step, self.max_steps)
             full_prompt = f"{system_prompt}\n\n"
-            
+
             # Add step history
             for step in steps:
                 full_prompt += f"Thought: {step['thought']}\nObservation: {step['observation']}\n"
-            
+
             full_prompt += f"\nUser: {user_request}\nNext Step (JSON):"
-            
+
             # 2. Get LLM Thought
             response_str = await self.llm.generate(full_prompt, json_format=True)
             try:
@@ -145,37 +145,37 @@ STEP LIMITS:
                     "latex": thought_data.final_latex,
                     "steps": steps
                 }
-            
+
             tool_name = thought_data.tool_call.tool
             args = thought_data.tool_call.args
-            
+
             # Smarter loop detection for complex tasks
             tool_signature = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
-            
+
             # Check if this is a consecutive repeat (calling same tool twice in a row with same args)
             is_consecutive_repeat = len(tool_call_history) > 0 and tool_call_history[-1] == tool_signature
-            
+
             # For non-consecutive repeats, be more lenient to allow multi-document tasks
             # Only trigger if we've done 5+ steps AND repeating exact same call
             is_loop_after_gathering = tool_signature in tool_call_history and len(steps) >= 5
-            
+
             # Special case: Allow reading different documents (different doc_ids)
             # Only flag as loop if reading the SAME document twice
             if tool_name == "read_doc" and not is_consecutive_repeat:
                 # Check if we're reading a different document
                 current_doc_id = args.get("doc_id", "")
                 previous_doc_ids = [
-                    step.get("args", {}).get("doc_id", "") 
-                    for step in steps 
+                    step.get("args", {}).get("doc_id", "")
+                    for step in steps
                     if step.get("tool") == "read_doc"
                 ]
                 # If this is a new document, don't consider it a loop
                 if current_doc_id and current_doc_id not in previous_doc_ids:
                     is_loop_after_gathering = False
-            
+
             if is_consecutive_repeat or is_loop_after_gathering:
                 print(f"DEBUG: Loop detected! Agent called {tool_signature} again (consecutive={is_consecutive_repeat}, after_gathering={is_loop_after_gathering}, steps={len(steps)})")
-                
+
                 # Force the agent to generate a final answer based on what it has learned
                 force_completion_prompt = f"""You are stuck in a loop. Based on the information you've gathered so far, provide your final answer NOW.
 
@@ -191,7 +191,7 @@ You have enough information. Provide your final LaTeX code with the requested ch
   "final_latex": "Your complete LaTeX code here with all requested modifications"
 }}
 """
-                
+
                 try:
                     forced_response = await self.llm.generate(force_completion_prompt, json_format=True, max_tokens=4000)
                     forced_thought = AgentThought.parse_raw(forced_response)
@@ -209,11 +209,11 @@ You have enough information. Provide your final LaTeX code with the requested ch
                         "steps": steps,
                         "error": "Agent was stuck in a loop and could not generate a final answer"
                     }
-            
+
             tool_call_history.append(tool_signature)
-            
+
             print(f"DEBUG: Agent calling tool: {tool_name} with args {args}")
-            
+
             # 4. Execute Tool
             observation = "Tool not found"
             if tool_name == "search_docs":
@@ -222,14 +222,14 @@ You have enough information. Provide your final LaTeX code with the requested ch
                 observation = await context_fetcher.read_doc(args.get("doc_id", ""))
             elif tool_name == "read_current_paper":
                 observation = await context_fetcher.read_current_paper(project_id)
-            
+
             steps.append({
                 "thought": thought_data.thought,
                 "tool": tool_name,
                 "args": args,
                 "observation": str(observation)[:AgentConfig.MAX_OBSERVATION_LENGTH]
             })
-            
+
             # Signal the thinking process to the manager if possible
             if hasattr(context_fetcher, "signal_thinking"):
                 await context_fetcher.signal_thinking(f"Thinking: {thought_data.thought} -> {tool_name}")

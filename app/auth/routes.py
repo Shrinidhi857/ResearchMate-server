@@ -136,7 +136,7 @@ def google_auth(request: Request):
 
     base_url = str(request.base_url).rstrip('/')
     redirect_uri = f"{base_url}/auth/google/callback"
-    
+
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
