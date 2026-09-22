@@ -8,13 +8,12 @@ import os
 import io
 import shutil
 import re
-from typing import Optional
 
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 
 from app.database import get_db
 from app.models.models import Project, User, Message, Response as ProjectResponse, PaperBucket, Paper, Document
@@ -802,7 +801,7 @@ async def build_context(
         fast_mode = data.get("fast_mode", True)
         replace_collection = data.get("replace", True)
 
-        retriever = RaptorPipeline(
+        RaptorPipeline(
             documents_content=documents_content,
             project_id=project_id,
             fast_mode=fast_mode,
@@ -1002,7 +1001,7 @@ async def latex_to_pdf(
         shutil.rmtree(temp_dir, ignore_errors=True)
         return JSONResponse(status_code=400, content={"error": "LaTeX compilation timed out (>30s)"})
 
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         shutil.rmtree(temp_dir, ignore_errors=True)
         return JSONResponse(
             status_code=500,

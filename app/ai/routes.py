@@ -6,7 +6,6 @@ from service.auto_site import auto_cite_paragraph
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-import time
 import json
 import os
 import asyncio

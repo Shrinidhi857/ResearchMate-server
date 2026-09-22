@@ -4,7 +4,6 @@ Enable the pgvector extension on PostgreSQL.
 Must run before any table with VECTOR columns is created.
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = "001_enable_pgvector"
 down_revision = None

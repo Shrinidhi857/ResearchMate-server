@@ -1,7 +1,6 @@
-from typing import List, Dict, Optional, Any, Union
+from typing import List, Dict, Optional, Any
 import re
 import json
-import asyncio
 from pydantic import BaseModel, Field
 from .llm import BaseLLM
 from .utils import AgentConfig
@@ -104,9 +103,6 @@ STEP LIMITS:
                 }
         
         steps = []
-        conversation_history = [
-            {"role": "user", "content": user_request}
-        ]
         
         # Track tool calls to detect loops
         tool_call_history = []
@@ -136,7 +132,7 @@ STEP LIMITS:
                 if match:
                     try:
                         thought_data = AgentThought.parse_raw(match.group(1))
-                    except:
+                    except Exception:
                         return {"error": "Failed to parse agent reasoning", "raw": response_str}
                 else:
                     return {"error": "Invalid agent response format", "raw": response_str}
@@ -260,9 +256,11 @@ Return ONLY the fixed LaTeX code in a block."""
 
     def _extract_latex_code(self, text: str) -> str:
         """Extract LaTeX code from LLM response"""
-        if not text: return ""
+        if not text:
+            return ""
         match = re.search(r'```(?:latex)?\s*(.*?)```', text, re.DOTALL | re.IGNORECASE)
-        if match: return match.group(1).strip()
+        if match:
+            return match.group(1).strip()
         if "\\documentclass" in text:
             start = text.find("\\documentclass")
             end = text.find("\\end{document}")

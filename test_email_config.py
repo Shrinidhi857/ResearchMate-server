@@ -11,7 +11,7 @@ smtp_port = int(os.getenv('SMTP_PORT', 587))
 smtp_email = os.getenv('SMTP_EMAIL')
 smtp_password = os.getenv('SMTP_PASSWORD')
 
-print(f"Testing SMTP Sending:")
+print("Testing SMTP Sending:")
 print(f"Server: {smtp_server}:{smtp_port}")
 print(f"Email: {smtp_email}")
 

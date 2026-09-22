@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import JSONResponse
 from datetime import datetime
-from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -284,8 +283,8 @@ def get_analytics(
     """Get overall platform analytics"""
     try:
         total_users = db.query(User).count()
-        verified_users = db.query(User).filter(User.is_verified == True).count()
-        admin_users = db.query(User).filter(User.is_admin == True).count()
+        verified_users = db.query(User).filter(User.is_verified.is_(True)).count()
+        admin_users = db.query(User).filter(User.is_admin.is_(True)).count()
 
         total_tokens = db.query(func.sum(User.tokens)).scalar() or 0
         avg_tokens = db.query(func.avg(User.tokens)).scalar() or 0

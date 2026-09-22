@@ -6,9 +6,6 @@ from typing import List, Optional, Dict
 from sklearn.mixture import GaussianMixture
 from dotenv import load_dotenv
 import tiktoken
-import hashlib
-import json
-from pathlib import Path
 import time
  
 # LangChain Imports
@@ -17,11 +14,12 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGener
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.output_parsers import StrOutputParser
-from langchainhub import Client
-hub = Client()
 from langchain_core.runnables import RunnablePassthrough
- 
+from langchainhub import Client
+
 load_dotenv()
+
+hub = Client()
  
 RANDOM_SEED = 224
  
@@ -194,7 +192,7 @@ def perform_clustering(embeddings: np.ndarray, dim: int, threshold: float):
  
         # Final safety check
         if len(all_local_clusters) != len(embeddings):
-            print(f"DEBUG: Clustering length mismatch, falling back to single cluster")
+            print("DEBUG: Clustering length mismatch, falling back to single cluster")
             return [np.array([0]) for _ in range(len(embeddings))]
  
         return all_local_clusters
@@ -548,10 +546,9 @@ def temporary_query_pipeline(text: str, question: str) -> str:
         
         # Initialize models
         embd = get_embeddings()
-        llm = get_llm()
         
         # Create in-memory vectorstore (NOT persisted to DB)
-        print(f"DEBUG: Creating temporary in-memory vectorstore\n")
+        print("DEBUG: Creating temporary in-memory vectorstore\n")
         vectorstore = FAISS.from_texts(
             texts=[text],
             embedding=embd
@@ -561,7 +558,7 @@ def temporary_query_pipeline(text: str, question: str) -> str:
         # Query without storage
         answer = asking_llm(retriever, question)
         
-        print(f"DEBUG: Temporary query completed (no storage)\n")
+        print("DEBUG: Temporary query completed (no storage)\n")
         return answer
         
     except Exception as e:

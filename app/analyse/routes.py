@@ -6,9 +6,8 @@ import asyncio
 from typing import Optional
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.orm import Session
 
-from app.database import get_db, SessionLocal
+from app.database import SessionLocal
 from app.auth.utils import get_current_user
 from app.models.models import Document, User
 from langchain_google_genai import ChatGoogleGenerativeAI

@@ -1,7 +1,7 @@
 """tests/test_projects.py – Project collaboration endpoint tests."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 # ── Create & List ─────────────────────────────────────────────────────────────

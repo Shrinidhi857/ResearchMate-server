@@ -1,6 +1,6 @@
 """tests/test_ai.py – AI feature endpoint tests (LLM calls mocked)."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 # ── Summarize ─────────────────────────────────────────────────────────────────

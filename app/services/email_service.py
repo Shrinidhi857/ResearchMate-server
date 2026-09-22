@@ -158,7 +158,7 @@ class EmailService:
         """
         try:
             # Debug: Print SMTP configuration
-            print(f"\n📧 Attempting to send signup invitation email...")
+            print("\n📧 Attempting to send signup invitation email...")
             print(f"   SMTP Server: {self.smtp_server}:{self.smtp_port}")
             print(f"   From Email: {self.smtp_email}")
             print(f"   Password Set: {'Yes' if self.smtp_password else 'No'}")
@@ -183,13 +183,13 @@ class EmailService:
             msg.attach(html_part)
             
             # Send email
-            print(f"   Connecting to SMTP server...")
+            print("   Connecting to SMTP server...")
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                print(f"   Starting TLS...")
+                print("   Starting TLS...")
                 server.starttls()
-                print(f"   Logging in...")
+                print("   Logging in...")
                 server.login(self.smtp_email, self.smtp_password)
-                print(f"   Sending message...")
+                print("   Sending message...")
                 server.send_message(msg)
             
             print(f"✅ Signup invitation email sent to {recipient_email}")

@@ -1,16 +1,15 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from datetime import datetime
-from typing import Dict, Any, List
-import json
+from typing import Dict, Any
 import asyncio
 import traceback
 
 from app.database import SessionLocal
-from app.models.models import Project, PaperBucket, Document, Paper
+from app.models.models import Project, Document, Paper
 
 from .llm import GeminiLLM
 from .agent import LaTeXAgent
-from .utils import Config, MessageType, ConnectionManager, AgentState, AgentConfig
+from .utils import Config, MessageType, ConnectionManager, AgentConfig
 
 router = APIRouter(tags=["CodeAgent"])
 
@@ -285,7 +284,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, project_id: s
                 "type": "ERROR",
                 "content": f"Server error: {str(e)}"
             })
-        except:
+        except Exception:
             pass
         manager.disconnect(client_id)
 
@@ -313,9 +312,9 @@ async def root():
 @router.get("/codeagent/health")
 async def health_check():
     try:
-        test_response = await llm.generate("test", max_tokens=10)
+        await llm.generate("test", max_tokens=10)
         llm_status = "healthy"
-    except:
+    except Exception:
         llm_status = "unavailable"
 
     return {

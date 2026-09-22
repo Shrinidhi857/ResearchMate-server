@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean, BigInteger, DateTime, Text, ForeignKey, Table, JSON
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
 from datetime import datetime, timezone

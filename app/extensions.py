@@ -1,4 +1,4 @@
-from app.database import engine, SessionLocal, Base, get_db
+from app.database import SessionLocal
 
 # For backward compatibility if any module imports db
 db = SessionLocal()

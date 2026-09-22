@@ -1,7 +1,8 @@
+import json
 from analysis_tool import semantic_search
 from analysis_tool import extract_entities
 from analysis_tool import train_sentence_classifier
-from analysis_tool import  predict_sentence_labels 
+from analysis_tool import predict_sentence_labels
 from analysis_tool import extract_relations_from_sentences
 from analysis_tool import detect_contradictions
 from analysis_tool import build_citation_graph

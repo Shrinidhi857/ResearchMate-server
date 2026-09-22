@@ -1,6 +1,5 @@
 """tests/test_admin.py – Admin endpoint tests."""
 
-import pytest
 
 
 # ── Access control ────────────────────────────────────────────────────────────

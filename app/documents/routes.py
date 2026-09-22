@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.models import Document, Project, PaperBucket, User
+from app.models.models import Document, PaperBucket, User
 from app.auth.utils import get_current_user
 
 router = APIRouter(tags=["Documents"])
