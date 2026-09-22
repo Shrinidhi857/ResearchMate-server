@@ -1,4 +1,5 @@
-from langchain import hub
+from langchainhub import Client
+hub = Client()
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI

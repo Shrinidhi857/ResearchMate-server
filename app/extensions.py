@@ -1,7 +1,4 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from authlib.integrations.flask_client import OAuth
+from app.database import engine, SessionLocal, Base, get_db
 
-db = SQLAlchemy()
-migrate = Migrate()
-oauth = OAuth()
+# For backward compatibility if any module imports db
+db = SessionLocal()

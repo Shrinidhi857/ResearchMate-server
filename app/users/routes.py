@@ -1,111 +1,99 @@
-from flask import Blueprint, jsonify
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from datetime import datetime
-from app.auth.utils import token_required
+from app.models.models import User
+from app.auth.utils import get_current_user
 
-users_bp = Blueprint('users', __name__)
+router = APIRouter(tags=["Users"])
+users_bp = router
 
 
-@users_bp.route("/user", methods=["GET"])
-@token_required
-def get_user(current_user):
+@router.get("/user")
+def get_user(current_user: User = Depends(get_current_user)):
     """
     Get current user profile with token information
-    
-    Response:
-    {
-        "id": 1,
-        "email": "user@example.com",
-        "first_name": "John",
-        "last_name": "Doe",
-        "is_verified": true,
-        "tokens": 30000,
-        "tokens_formatted": "30,000",
-        "created_at": "2025-05-26T..."
-    }
     """
     try:
-        return jsonify({
-            "id": current_user.id,
-            "email": current_user.email,
-            "first_name": current_user.first_name if hasattr(current_user, "first_name") else None,
-            "last_name": current_user.last_name if hasattr(current_user, "last_name") else None,
-            "is_verified": current_user.is_verified,
-            "tokens": current_user.tokens,
-            "tokens_formatted": f"{current_user.tokens:,}",
-            "created_at": current_user.created_at.isoformat() if current_user.created_at else None
-        }), 200
+        tokens_val = current_user.tokens if current_user.tokens is not None else 0
+        return JSONResponse(
+            status_code=200,
+            content={
+                "id": current_user.id,
+                "email": current_user.email,
+                "first_name": current_user.first_name,
+                "last_name": current_user.last_name,
+                "is_verified": current_user.is_verified,
+                "tokens": tokens_val,
+                "tokens_formatted": f"{tokens_val:,}",
+                "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+            }
+        )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@users_bp.route("/tokens", methods=["GET"])
-@token_required
-def get_tokens(current_user):
+@router.get("/tokens")
+def get_tokens(current_user: User = Depends(get_current_user)):
     """
     Get detailed token information for current user
-    
-    Response:
-    {
-        "tokens": 30000,
-        "tokens_formatted": "30,000",
-        "message": "Your current token balance"
-    }
     """
     try:
-        return jsonify({
-            "tokens": current_user.tokens,
-            "tokens_formatted": f"{current_user.tokens:,}",
-            "message": f"Your current token balance is {current_user.tokens:,}"
-        }), 200
+        tokens_val = current_user.tokens if current_user.tokens is not None else 0
+        return JSONResponse(
+            status_code=200,
+            content={
+                "tokens": tokens_val,
+                "tokens_formatted": f"{tokens_val:,}",
+                "message": f"Your current token balance is {tokens_val:,}"
+            }
+        )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@users_bp.route("/tokens/check", methods=["POST"])
-@token_required
-def check_tokens(current_user):
+@router.post("/tokens/check")
+async def check_tokens(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """
     Check if user has enough tokens for an operation
-    
-    Request JSON:
-    {
-        "required_tokens": 1000
-    }
-    
-    Response:
-    {
-        "has_enough": true,
-        "current_tokens": 30000,
-        "required_tokens": 1000,
-        "remaining_after_deduction": 29000
-    }
     """
-    from flask import request
     try:
-        data = request.get_json(force=True, silent=True) or {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        
         required_tokens = data.get("required_tokens", 0)
         
         if required_tokens < 0:
-            return jsonify({"error": "required_tokens must be positive"}), 400
+            return JSONResponse(status_code=400, content={"error": "required_tokens must be positive"})
         
-        has_enough = current_user.tokens >= required_tokens
-        remaining = current_user.tokens - required_tokens if has_enough else 0
+        user_tokens = current_user.tokens if current_user.tokens is not None else 0
+        has_enough = user_tokens >= required_tokens
+        remaining = user_tokens - required_tokens if has_enough else 0
         
-        return jsonify({
-            "has_enough": has_enough,
-            "current_tokens": current_user.tokens,
-            "required_tokens": required_tokens,
-            "remaining_after_deduction": remaining
-        }), 200
+        return JSONResponse(
+            status_code=200,
+            content={
+                "has_enough": has_enough,
+                "current_tokens": user_tokens,
+                "required_tokens": required_tokens,
+                "remaining_after_deduction": remaining
+            }
+        )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@users_bp.route('/protected', methods=['GET'])
-@token_required
-def protected_route(current_user):
-    return jsonify({
-        'message': f'Hello {current_user.first_name or current_user.email}!',
-        'user_id': current_user.id,
-        'timestamp': datetime.utcnow().isoformat()
-    }), 200
+@router.get("/protected")
+def protected_route(current_user: User = Depends(get_current_user)):
+    return JSONResponse(
+        status_code=200,
+        content={
+            'message': f'Hello {current_user.first_name or current_user.email}!',
+            'user_id': current_user.id,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    )

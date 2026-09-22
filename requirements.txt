@@ -1,51 +1,51 @@
-# --- Flask and Core Backend ---
-Flask==2.3.3
-Flask-SQLAlchemy==3.1.1
-Flask-Migrate==4.0.5
-Flask-CORS==4.0.0
-psycopg2-binary==2.9.7
-Werkzeug==2.3.7
-Authlib==1.2.1
-PyJWT==2.8.0
-python-dotenv==1.0.0
-requests==2.31.0
+# --- FastAPI Backend ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.6
 
-# --- Async / Background Tasks ---
-fastapi
-uvicorn
-celery
-redis
+# --- Authentication / HTTP ---
+Authlib>=1.2.1
+PyJWT>=2.8.0
+python-dotenv>=1.0.0
+httpx>=0.24.0
 
-# --- ORM & Data ---
-sqlalchemy
+# --- Database ---
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
 pgvector
+langchain-postgres
 pandas
-numpy
-scikit-learn
-umap
-networkx
 
-# --- NLP & LLM Tools ---
+# --- RAG / LLM ---
 langchain
 langchain-core
 langchain-community
 langchain-google-genai
-google-generativeai
-chromadb
-transformers
 tiktoken
-torch
-spacy==3.4.4
-#scispacy==0.5.1
-#https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_core_sci_sm-0.5.1.tar.gz
-nltk
-
-# --- File Parsing & Utilities ---
-pymupdf
-unstructured[all]
-httpx
-PyPDF2==3.0.1
-lxml
-https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+langchain-text-splitters
 langchain-postgres
+langchainhub
+google-genai
+google-generativeai
+# --- Document Parsing ---
+pymupdf
 
+# --- Data / RAG Processing ---
+numpy
+scikit-learn
+umap-learn
+networkx
+
+# --- Optional Background Jobs ---
+celery
+redis
+
+# --- Testing / Linting ---
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
+werkzeug
+reportlab

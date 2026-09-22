@@ -15,9 +15,10 @@ import time
 from langchain_postgres.vectorstores import PGVector
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.output_parsers import StrOutputParser
-from langchain import hub
+from langchainhub import Client
+hub = Client()
 from langchain_core.runnables import RunnablePassthrough
  
 load_dotenv()

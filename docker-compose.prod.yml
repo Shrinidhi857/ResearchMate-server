@@ -1,0 +1,50 @@
+# docker-compose.prod.yml
+# Production compose — NO local db or redis services.
+# DATABASE_URL and REDIS_URL point to AWS RDS and ElastiCache.
+# All secrets come from AWS Secrets Manager via the entrypoint script.
+
+version: "3.9"
+
+services:
+  api:
+    image: ${ECR_IMAGE}   # e.g. 123456789.dkr.ecr.ap-south-1.amazonaws.com/researchmate-api:latest
+    container_name: researchmate_api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # Injected by entrypoint.sh from Secrets Manager when AWS_SECRET_NAME is set
+      AWS_SECRET_NAME: ${AWS_SECRET_NAME:-researchmate/prod}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - researchmate_prod
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: researchmate_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - researchmate_prod
+
+networks:
+  researchmate_prod:
+    driver: bridge

@@ -1,0 +1,100 @@
+name: CD – Build & Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: researchmate-api
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to Amazon ECR
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.build-image.outputs.image }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Docker Image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build Docker image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          
+          # Push both commit SHA tag and latest tag
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-to-ec2:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Copy Compose & Nginx configs to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.prod.yml,nginx/nginx.conf"
+          target: "/opt/researchmate"
+
+      - name: Execute Deployment on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: AWS_REGION,ECR_REPOSITORY
+          script: |
+            cd /opt/researchmate
+
+            # Authenticate Docker with Amazon ECR using instance IAM credentials
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+            # Pull latest application image
+            export ECR_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+            docker compose -f docker-compose.prod.yml pull
+
+            # Rolling restart of containers
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Clean up old unused images
+            docker image prune -af --filter "until=24h"
+
+            # Health verification
+            sleep 15
+            curl -f http://localhost/health || curl -f http://localhost:5000/health || exit 1
+            echo "✅ Deployment succeeded and API is healthy!"
