@@ -256,8 +256,12 @@ async def save_message(
 
     db.add(msg)
     db.commit()
+    db.refresh(msg)
 
-    return JSONResponse(status_code=200, content={"message": "Message saved"})
+    return JSONResponse(
+        status_code=201,
+        content={"message": "Message saved", "message_id": msg.id, "data": msg.to_dict()}
+    )
 
 
 @router.delete("/messages/{msg_id}")
@@ -308,8 +312,12 @@ async def save_response(
 
     db.add(res)
     db.commit()
+    db.refresh(res)
 
-    return JSONResponse(status_code=200, content={"message": "Response saved"})
+    return JSONResponse(
+        status_code=201,
+        content={"message": "Response saved", "response_id": res.response_id, "data": res.to_dict()}
+    )
 
 
 @router.get("/projects")
@@ -613,7 +621,7 @@ async def add_paper_to_bucket(
     except Exception:
         data = {}
 
-    paper_id = data.get("paper_id")
+    paper_id = data.get("paper_id") or data.get("doc_id")
     if not paper_id:
         return JSONResponse(status_code=400, content={"error": "paper_id is required"})
 
@@ -634,7 +642,7 @@ async def add_paper_to_bucket(
     db.commit()
 
     return JSONResponse(
-        status_code=200,
+        status_code=201,
         content={"message": "Paper added to bucket", "paper_ids": paper_bucket.paper_ids}
     )
 

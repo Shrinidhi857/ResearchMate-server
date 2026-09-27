@@ -45,10 +45,18 @@ def test_codeagent_sessions(client):
 
 def test_websocket_route_registered(client):
     """Verify the WebSocket route /ws/{client_id}/{project_id} is registered
-    by checking the app routes list — no actual WS handshake needed."""
+    by checking the app/router routes list — no actual WS handshake needed."""
     from app.main import app
-    ws_routes = [
-        route for route in app.routes
-        if hasattr(route, "path") and "/ws/" in route.path
-    ]
-    assert len(ws_routes) > 0, "WebSocket route /ws/{client_id}/{project_id} not found"
+    from app.codeagent.routes import router as codeagent_router
+
+    def get_all_routes(app_or_router):
+        routes = []
+        for r in getattr(app_or_router, "routes", []):
+            if hasattr(r, "path"):
+                routes.append(r.path)
+            if hasattr(r, "router"):
+                routes.extend(get_all_routes(r.router))
+        return routes
+
+    all_paths = get_all_routes(app) + [r.path for r in getattr(codeagent_router, "routes", []) if hasattr(r, "path")]
+    assert any("/ws/" in path for path in all_paths), "WebSocket route /ws/{client_id}/{project_id} not found"
