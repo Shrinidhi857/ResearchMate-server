@@ -1,3 +1,4 @@
+import uuid
 import re
 import jwt
 from datetime import datetime
@@ -28,7 +29,9 @@ def validate_password(password: str) -> bool:
 def generate_token(user_id: int) -> str:
     payload = {
         'user_id': user_id,
-        'exp': datetime.utcnow() + Config.JWT_ACCESS_TOKEN_EXPIRES
+        'exp': datetime.utcnow() + Config.JWT_ACCESS_TOKEN_EXPIRES,
+        'iat': datetime.utcnow(),
+        'jti': str(uuid.uuid4())
     }
     return jwt.encode(payload, Config.JWT_SECRET_KEY, algorithm='HS256')
 

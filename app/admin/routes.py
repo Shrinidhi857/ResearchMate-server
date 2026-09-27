@@ -91,7 +91,7 @@ def get_user_details(
         user_info['documents_count'] = len(user.documents) if hasattr(user, 'documents') and user.documents else 0
         user_info['sessions_count'] = len(user.sessions) if hasattr(user, 'sessions') and user.sessions else 0
 
-        return JSONResponse(status_code=200, content={'user': user_info})
+        return JSONResponse(status_code=200, content={'id': user.id, 'user': user_info})
     except Exception as e:
         return JSONResponse(status_code=500, content={'error': f'Failed to fetch user details: {str(e)}'})
 
@@ -294,6 +294,7 @@ def get_analytics(
         return JSONResponse(
             status_code=200,
             content={
+                'total_users': total_users,
                 'summary': {
                     'total_users': total_users,
                     'verified_users': verified_users,

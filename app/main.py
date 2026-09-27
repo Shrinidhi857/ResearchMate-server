@@ -19,10 +19,10 @@ from app.codeagent.routes import router as codeagent_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize default admin account
-    print("🚀 Starting ResearchMate API Server...")
+    print("[*] Starting ResearchMate API Server...")
     initialize_admin()
     yield
-    print("🛑 Shutting down ResearchMate API Server...")
+    print("[*] Shutting down ResearchMate API Server...")
 
 
 app = FastAPI(
