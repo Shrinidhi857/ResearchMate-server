@@ -23,3 +23,7 @@ class Config:
 
     # Frontend URL
     FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+
+    # S3 Storage (PDFs)
+    AWS_S3_BUCKET = os.getenv('AWS_S3_BUCKET', 'researchmate-documents')
+    AWS_REGION    = os.getenv('AWS_REGION', 'ap-south-1')
