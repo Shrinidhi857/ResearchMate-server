@@ -15,10 +15,16 @@ venv/
 env/
 .venv/
 
-# Environment secrets – NEVER include in images
+# Environment secrets & keys – NEVER include in images
 .env
+.env.*
+*.pem
+*.key
+*.id_rsa
+*.crt
 
 # Test artefacts
+tests/
 .pytest_cache/
 htmlcov/
 .coverage
@@ -28,6 +34,7 @@ coverage.xml
 # Version control
 .git/
 .gitignore
+.github/
 
 # IDE / OS
 .vscode/
@@ -36,11 +43,15 @@ coverage.xml
 *.DS_Store
 Thumbs.db
 
-# Documentation only
+# Documentation & diagrams
 *.md
 diagram.png
 logo.png
 
-# Temporary files
+# Temporary & Local Storage
 tmp/
 temp/
+storage/
+
+# SQLite test database
+*.db

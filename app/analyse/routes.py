@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.database import SessionLocal
 from app.auth.utils import get_current_user
 from app.models.models import Document, User
+from app.services.document_service import get_document_text
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -118,7 +119,7 @@ async def stream_analysis(
                     await asyncio.sleep(0.2)
 
                     try:
-                        content_to_analyze = document.content[:3000]
+                        content_to_analyze = get_document_text(document)[:3000]
 
                         # Step: LLM Processing (60%)
                         yield f"data: {json.dumps({'doc_id': actual_id, 'progress': 60})}\n\n"

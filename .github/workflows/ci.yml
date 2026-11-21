@@ -2,9 +2,9 @@ name: CI – Test & Lint
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
 
 env:
   PYTHON_VERSION: "3.11"

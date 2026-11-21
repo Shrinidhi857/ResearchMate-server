@@ -2,8 +2,13 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from app.models.models import User
 from app.auth.utils import get_current_user
-from rag.raptor import RaptorPipeline
-from rag.raptor_middleman import asking_llm
+
+try:
+    from rag.raptor import RaptorPipeline
+    from rag.raptor_middleman import asking_llm
+except Exception:
+    RaptorPipeline = None
+    asking_llm = None
 
 router = APIRouter(tags=["RAG"])
 rag_bp = router
@@ -28,7 +33,11 @@ async def raptor_analysis(
         return JSONResponse(status_code=400, content={"message": "No document selected"})
 
     try:
-        retriever = RaptorPipeline(current_user, data)
+        pipeline_cls = RaptorPipeline
+        if pipeline_cls is None:
+            from rag.raptor import RaptorPipeline as _RaptorPipeline
+            pipeline_cls = _RaptorPipeline
+        retriever = pipeline_cls(current_user, data)
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
 
@@ -47,7 +56,11 @@ async def raptor_ask(
 
     if retriever is not None:
         try:
-            answer = asking_llm(retriever, data.get("question"))
+            ask_fn = asking_llm
+            if ask_fn is None:
+                from rag.raptor_middleman import asking_llm as _asking_llm
+                ask_fn = _asking_llm
+            answer = ask_fn(retriever, data.get("question"))
         except Exception as e:
             import traceback
             traceback.print_exc()

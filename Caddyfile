@@ -1,0 +1,24 @@
+# Caddyfile
+# Automatic HTTPS reverse proxy with WebSocket support for ResearchMate
+
+YOUR_DOMAIN_OR_IP {
+    # 50MB max body for PDF uploads
+    request_body {
+        max_size 50MB
+    }
+
+    # Proxy to FastAPI container bound to localhost:5000
+    reverse_proxy 127.0.0.1:5000 {
+        # Transport settings for long RAG/LLM inferences
+        transport http {
+            response_header_timeout 300s
+        }
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}

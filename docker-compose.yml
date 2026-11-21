@@ -1,8 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # ResearchMate – Docker Compose (Development / Staging)
 # ──────────────────────────────────────────────────────────────────────────────
-version: "3.9"
-
 services:
   # ── FastAPI Application ────────────────────────────────────────────────────
   api:
@@ -11,6 +9,7 @@ services:
       dockerfile: Dockerfile
     container_name: researchmate_api
     restart: unless-stopped
+    command: ["bash", "scripts/entrypoint.sh"]
     ports:
       - "5000:5000"
     env_file:
@@ -18,6 +17,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-researchmate}
       REDIS_URL: redis://redis:6379/0
+      NUMBA_CACHE_DIR: /tmp
     depends_on:
       db:
         condition: service_healthy
