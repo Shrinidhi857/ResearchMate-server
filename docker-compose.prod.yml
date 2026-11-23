@@ -12,7 +12,7 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-researchmate}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-researchmate}}
       REDIS_URL: redis://redis:6379/0
       AWS_REGION: ${AWS_REGION:-ap-south-1}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:?AWS_S3_BUCKET is required}
@@ -26,8 +26,6 @@ services:
       MPLCONFIGDIR: /tmp
       UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     # No source volume mounts in production — code is sealed inside image
@@ -40,11 +38,13 @@ services:
     networks:
       - researchmate_net
 
-  # ── PostgreSQL Database with pgvector ──────────────────────────────────────
+  # ── PostgreSQL Database with pgvector (Optional local fallback) ───────────
   db:
     image: pgvector/pgvector:pg15
     container_name: researchmate_db
     restart: unless-stopped
+    profiles:
+      - local-db
     # PORTS OMITTED INTENTIONALLY – accessible ONLY via internal container network
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
