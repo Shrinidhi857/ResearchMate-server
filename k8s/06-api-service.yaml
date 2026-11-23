@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: researchmate-api-service
+  namespace: researchmate
+  labels:
+    app: researchmate-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: 5000
+      name: http
+      protocol: TCP
+  selector:
+    app: researchmate-api
