@@ -2,7 +2,7 @@
 conftest.py – Shared pytest fixtures for the ResearchMate test suite.
 
 Strategy:
-- Mock all heavy ML/AI native modules (torch, umap, spacy, rag.*) in
+- Mock all heavy ML/AI native modules (torch, umap, spacy, rag.*, boto3) in
   sys.modules BEFORE any app code is imported. This lets the suite run in
   lightweight CI environments (GitHub Actions) without installing torch/umap.
 - Use SQLite (in-memory) instead of PostgreSQL so no DB server is needed.
@@ -15,7 +15,8 @@ import sys
 from unittest.mock import MagicMock
 
 # ── 1. Environment variables (must come before app imports) ───────────────────
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_researchmate.db")
+# Force SQLite for test execution so local PostgreSQL is never dialed
+os.environ["DATABASE_URL"] = "sqlite:///./test_researchmate.db"
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
@@ -55,8 +56,13 @@ _STUBS = [
     "tiktoken",
     # pymupdf / fitz  (PDF extraction)
     "fitz",
+    "pymupdf",
     # unstructured
     "unstructured",
+    # AWS S3 / boto3
+    "boto3",
+    "botocore",
+    "botocore.exceptions",
 ]
 
 for _mod in _STUBS:

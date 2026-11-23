@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-/tmp}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp}"
+
 echo "═══════════════════════════════════════════"
 echo "  ResearchMate API – Container Startup"
 echo "═══════════════════════════════════════════"
@@ -45,7 +48,9 @@ for attempt in range(30):
         engine = create_engine(db_url, pool_pre_ping=True)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        print(f"  Database ready after {attempt + 1} attempt(s) ✓")
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+        print(f"  Database and pgvector extension ready after {attempt + 1} attempt(s) ✓")
         sys.exit(0)
     except Exception as e:
         print(f"  Attempt {attempt + 1}/30: {e}")
@@ -57,7 +62,7 @@ PYEOF
 
 # ── Run Alembic migrations ────────────────────────────────────────────────────
 echo "→ Running database migrations..."
-alembic upgrade head
+python3 -m alembic -c migrations/alembic.ini upgrade heads
 echo "→ Migrations complete ✓"
 
 # ── Start the API server ──────────────────────────────────────────────────────

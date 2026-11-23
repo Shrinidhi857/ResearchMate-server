@@ -19,7 +19,10 @@ from langchainhub import Client
 
 load_dotenv()
 
-hub = Client()
+try:
+    hub = Client()
+except Exception:
+    hub = None
  
 RANDOM_SEED = 224
  

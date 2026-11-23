@@ -19,8 +19,6 @@ from app.database import get_db
 from app.models.models import Project, User, Message, Response as ProjectResponse, PaperBucket, Paper, Document
 from app.auth.utils import get_current_user
 from app.services.email_service import send_invitation_email
-from rag.raptor import RaptorPipeline, get_retriever, temporary_query_pipeline
-from rag.raptor_middleman import asking_llm
 
 router = APIRouter(tags=["Projects"])
 projects_bp = router
@@ -55,6 +53,7 @@ async def query_temporary(request: Request):
         if len(question) < 5:
             return JSONResponse(status_code=400, content={"error": "Question must be at least 5 characters long"})
 
+        from rag.raptor import temporary_query_pipeline
         answer = temporary_query_pipeline(text, question)
 
         return JSONResponse(
@@ -793,12 +792,15 @@ async def build_context(
                 }
             )
 
+        from app.services.document_service import get_document_text
+
         documents_content = [
             {
                 "doc_id": str(d.doc_id),
-                "content": d.content
+                "content": get_document_text(d)
             }
             for d in docs
+            if get_document_text(d)
         ]
 
         try:
@@ -809,6 +811,7 @@ async def build_context(
         fast_mode = data.get("fast_mode", True)
         replace_collection = data.get("replace", True)
 
+        from rag.raptor import RaptorPipeline
         RaptorPipeline(
             documents_content=documents_content,
             project_id=project_id,
@@ -887,6 +890,9 @@ async def ask_question(
 
     if len(question) < 5:
         return JSONResponse(status_code=400, content={"error": "Question must be at least 5 characters"})
+
+    from rag.raptor import get_retriever
+    from rag.raptor_middleman import asking_llm
 
     retriever = get_retriever(project_id)
     if retriever is None:

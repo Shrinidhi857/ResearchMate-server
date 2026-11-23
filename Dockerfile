@@ -37,6 +37,7 @@ RUN chmod +x scripts/entrypoint.sh
 # Non-root user
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 RUN chown -R appuser:appgroup /app
+ENV NUMBA_CACHE_DIR=/tmp MPLCONFIGDIR=/tmp
 USER appuser
 
 EXPOSE 5000
@@ -45,4 +46,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
 # Runs migrations then starts Uvicorn
-CMD ["scripts/entrypoint.sh"]
+CMD ["bash", "scripts/entrypoint.sh"]

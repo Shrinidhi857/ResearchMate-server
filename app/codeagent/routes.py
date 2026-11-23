@@ -6,6 +6,7 @@ import traceback
 
 from app.database import SessionLocal
 from app.models.models import Project, Document, Paper
+from app.services.document_service import get_document_text
 
 from .llm import GeminiLLM
 from .agent import LaTeXAgent
@@ -36,7 +37,8 @@ def get_project_context(project_id: str):
         if paper_bucket and paper_bucket.paper_ids:
             docs = db.query(Document).filter(Document.doc_id.in_(paper_bucket.paper_ids)).all()
             for d in docs:
-                doc_context += f"Document: {d.title or 'Untitled'}\nContent: {d.content}\n---\n"
+                text = get_document_text(d)
+                doc_context += f"Document: {d.title or 'Untitled'}\nContent: {text}\n---\n"
 
         return project, doc_context
     finally:
@@ -127,7 +129,8 @@ class ContextFetcher:
             doc = db.query(Document).filter(Document.doc_id == doc_id).first()
             if not doc:
                 return f"Document {doc_id} not found."
-            return f"Content of {doc.title or doc_id}:\n{doc.content[:5000]}"
+            text = get_document_text(doc)
+            return f"Content of {doc.title or doc_id}:\n{text[:5000]}"
         finally:
             db.close()
 

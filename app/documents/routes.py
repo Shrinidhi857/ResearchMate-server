@@ -1,10 +1,17 @@
-from fastapi import APIRouter, Depends, Request
+import uuid
+from fastapi import APIRouter, Depends, Request, Response, UploadFile, File
 from fastapi.responses import JSONResponse
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import Document, PaperBucket, User
 from app.auth.utils import get_current_user
+from app.services.document_service import (
+    save_document_file,
+    get_document_bytes,
+    get_document_text,
+    get_document_pdf_url,
+)
 
 router = APIRouter(tags=["Documents"])
 documents_bp = router
@@ -104,7 +111,7 @@ def get_documents(
             content=[{
                 "doc_id": d.doc_id,
                 "title": d.title,
-                "content": d.content,
+                "content": get_document_text(d),
                 "created_at": d.created_at.isoformat() if d.created_at else None
             } for d in all_docs]
         )
@@ -159,7 +166,7 @@ def get_document(
         content={
             "doc_id": doc.doc_id,
             "title": doc.title,
-            "content": doc.content,
+            "content": get_document_text(doc),
             "created_at": doc.created_at.isoformat() if doc.created_at else None
         }
     )
@@ -205,3 +212,107 @@ def delete_document(
     db.delete(doc)
     db.commit()
     return JSONResponse(status_code=200, content={"message": "Document deleted successfully"})
+
+
+# ============================================================================
+# PDF UPLOAD & RETRIEVAL (S3 OR LOCAL FALLBACK)
+# ============================================================================
+
+@router.post("/documents/upload-pdf")
+async def upload_pdf(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a PDF document.
+    Stores the binary file in Object Storage (S3) or secure local storage.
+    Only the storage identifier is kept in the database, avoiding database bloat.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return JSONResponse(status_code=400, content={"error": "Only PDF files are accepted"})
+
+    doc_id = str(uuid.uuid4())
+    contents = await file.read()
+
+    try:
+        storage_type, storage_id = save_document_file(
+            user_id=current_user.id,
+            doc_id=doc_id,
+            file_bytes=contents,
+            filename=file.filename
+        )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Failed to store PDF file: {str(e)}"})
+
+    try:
+        doc = Document(
+            doc_id=doc_id,
+            user_id=current_user.id,
+            title=file.filename.removesuffix(".pdf"),
+            content=storage_id,   # stores storage identifier (S3 key or local relative path)
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    return JSONResponse(status_code=201, content={
+        "message": "PDF uploaded successfully",
+        "doc_id": doc.doc_id,
+        "title": doc.title,
+        "storage_type": storage_type,
+        "storage_id": storage_id,
+    })
+
+
+@router.get("/documents/{doc_id}/pdf-url")
+def get_pdf_presigned_url(
+    doc_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a URL so the browser can render the PDF inline.
+    - If S3 is active: returns short-lived presigned S3 GET URL.
+    - If S3 is not active (local): returns local stream endpoint URL.
+    """
+    doc = user_has_document_access(current_user, doc_id, db)
+    if not doc:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Document not found or access denied"},
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    pdf_url = get_document_pdf_url(doc, base_url=base_url)
+
+    return JSONResponse(status_code=200, content={
+        "doc_id": doc.doc_id,
+        "title": doc.title,
+        "pdf_url": pdf_url,
+    })
+
+
+@router.get("/documents/{doc_id}/view")
+def view_document_pdf(
+    doc_id: str,
+    db: Session = Depends(get_db)
+):
+    """Stream PDF directly when running without AWS S3."""
+    doc = db.query(Document).filter(Document.doc_id == doc_id).first()
+    if not doc:
+        return JSONResponse(status_code=404, content={"error": "Document not found"})
+
+    pdf_bytes = get_document_bytes(doc)
+    if not pdf_bytes:
+        return JSONResponse(status_code=404, content={"error": "PDF file not found in storage"})
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{doc.title or doc_id}.pdf"'}
+    )
