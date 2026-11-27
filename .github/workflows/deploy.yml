@@ -193,9 +193,9 @@ jobs:
           kubectl apply -f k8s/07-hpa.yaml
           kubectl apply -f k8s/08-ingress.yaml
 
-          # 6. Wait for rolling update to succeed (up to 300s to allow startupProbe to pass)
+          # 6. Wait for rolling update to succeed (up to 600s to allow image pull & startupProbe to pass)
           echo "Waiting for deployment rollout to finish..."
-          if ! kubectl rollout status deployment/researchmate-api -n researchmate --timeout=300s; then
+          if ! kubectl rollout status deployment/researchmate-api -n researchmate --timeout=600s; then
             echo "❌ Rollout timed out. Inspecting pod status, events, and logs..."
             echo "=== PODS IN NAMESPACE ==="
             kubectl get pods -n researchmate -o wide
