@@ -2,8 +2,15 @@ import os
 from typing import Optional, Tuple
 from app.config import Config
 
-STORAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "storage", "documents"))
-os.makedirs(STORAGE_DIR, exist_ok=True)
+STORAGE_DIR = os.getenv("LOCAL_STORAGE_DIR")
+if not STORAGE_DIR:
+    STORAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "storage", "documents"))
+
+try:
+    os.makedirs(STORAGE_DIR, exist_ok=True)
+except OSError:
+    STORAGE_DIR = "/tmp/documents"
+    os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # Clean out empty/whitespace AWS env vars so boto3 defaults to EC2 instance profile / IAM role
 for _var in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]:

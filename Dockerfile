@@ -34,9 +34,12 @@ COPY . .
 # Make entrypoint executable
 RUN chmod +x scripts/entrypoint.sh
 
-# Non-root user
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
-RUN chown -R appuser:appgroup /app
+# Storage directory & non-root user with explicit UID/GID 1000 to match Kubernetes securityContext
+RUN mkdir -p /app/storage/documents \
+    && addgroup --gid 1000 appgroup \
+    && adduser --uid 1000 --ingroup appgroup --disabled-password --gecos "" appuser \
+    && chown -R appuser:appgroup /app \
+    && chmod -R 775 /app
 ENV NUMBA_CACHE_DIR=/tmp MPLCONFIGDIR=/tmp
 USER appuser
 
