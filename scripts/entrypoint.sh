@@ -32,16 +32,37 @@ for k, v in d.items():
     echo "→ Secrets loaded ✓"
 fi
 
-# ── Wait for database to be ready ────────────────────────────────────────────
+# ── Wait for database to be ready & bootstrap if needed ───────────────────────
 echo "→ Waiting for database..."
 python3 - <<'PYEOF'
 import os, time, sys
+from urllib.parse import urlparse, urlunparse
 from sqlalchemy import create_engine, text
 
 db_url = os.getenv("DATABASE_URL", "")
 if not db_url:
     print("WARNING: DATABASE_URL not set")
     sys.exit(0)
+
+# If target database doesn't exist yet on RDS, connect to maintenance 'postgres' DB and create it
+try:
+    parsed = urlparse(db_url)
+    target_db = parsed.path.lstrip('/')
+    if target_db and target_db != 'postgres':
+        admin_url = urlunparse(parsed._replace(path='/postgres'))
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :dbname"),
+                {"dbname": target_db}
+            ).scalar()
+            if not exists:
+                print(f"→ Database '{target_db}' does not exist on RDS. Creating it now...")
+                conn.execute(text(f'CREATE DATABASE "{target_db}"'))
+                print(f"→ Database '{target_db}' created successfully ✓")
+        admin_engine.dispose()
+except Exception as ex:
+    print(f"  Note during database bootstrap check: {ex}")
 
 for attempt in range(30):
     try:
@@ -62,7 +83,11 @@ PYEOF
 
 # ── Run Alembic migrations ────────────────────────────────────────────────────
 echo "→ Running database migrations..."
-python3 -m alembic -c migrations/alembic.ini upgrade heads
+if [ -f "migrations/alembic.ini" ]; then
+    python3 -m alembic -c migrations/alembic.ini upgrade head 2>/dev/null || python3 -m alembic -c migrations/alembic.ini upgrade heads || true
+elif [ -f "alembic.ini" ]; then
+    python3 -m alembic -c alembic.ini upgrade head 2>/dev/null || python3 -m alembic -c alembic.ini upgrade heads || true
+fi
 echo "→ Migrations complete ✓"
 
 # ── Start the API server ──────────────────────────────────────────────────────
