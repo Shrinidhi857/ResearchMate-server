@@ -4,9 +4,10 @@ metadata:
   name: researchmate-config
   namespace: researchmate
 data:
-  AWS_REGION: "ap-south-1"
-  AWS_S3_BUCKET: "researchmate-documents"
-  FRONTEND_URL: "https://yourdomain.com"
+  # Injected dynamically by GitHub Actions CI/CD via envsubst
+  AWS_REGION: "${AWS_REGION}"
+  AWS_S3_BUCKET: "${AWS_S3_BUCKET}"
+  FRONTEND_URL: "${FRONTEND_URL}"
   REDIS_URL: "redis://redis-service.researchmate.svc.cluster.local:6379/0"
   UVICORN_WORKERS: "2"
   NUMBA_CACHE_DIR: "/tmp"
