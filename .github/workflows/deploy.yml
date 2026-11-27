@@ -173,23 +173,10 @@ jobs:
           export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           export ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
 
-          # 2. Tag VPC subnets so the AWS cloud controller can discover them for ELB provisioning
-          # Required tags: kubernetes.io/role/elb=1 (public) + kubernetes.io/cluster/<name>=shared
-          echo "=== Tagging VPC subnets for ELB discovery ==="
-          CLUSTER_NAME_VAL="${{ secrets.EKS_CLUSTER_NAME }}"
-          SUBNET_IDS=$(aws ec2 describe-subnets \
-            --filters "Name=vpc-id,Values=$(aws eks describe-cluster --name "$CLUSTER_NAME_VAL" --query 'cluster.resourcesVpcConfig.vpcId' --output text)" \
-            --query 'Subnets[?MapPublicIpOnLaunch==`true`].SubnetId' \
-            --output text)
-          echo "Public subnets found: $SUBNET_IDS"
-          for SUBNET_ID in $SUBNET_IDS; do
-            aws ec2 create-tags --resources "$SUBNET_ID" --tags \
-              "Key=kubernetes.io/role/elb,Value=1" \
-              "Key=kubernetes.io/cluster/${CLUSTER_NAME_VAL},Value=shared"
-            echo "  Tagged subnet: $SUBNET_ID"
-          done
-
-          # 3. Apply core cluster namespace
+          # 2. Apply core cluster namespace
+          # NOTE: VPC subnets must be pre-tagged once manually in AWS Console:
+          #   kubernetes.io/role/elb = 1
+          #   kubernetes.io/cluster/<EKS_CLUSTER_NAME> = shared
           kubectl apply -f k8s/00-namespace.yaml
 
           # 4. Inject variables and secrets dynamically via envsubst
@@ -240,15 +227,15 @@ jobs:
           kubectl describe svc researchmate-api-service -n researchmate
 
           echo "=== NODE IAM ROLE FOR LB PERMISSIONS CHECK ==="
-          NODE_NAME=$(kubectl get nodes --no-headers -o custom-columns=NAME:.metadata.name | grep -v taint | head -1 || kubectl get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1)
-          NODE_INSTANCE_ID=$(kubectl get node "$NODE_NAME" -o jsonpath='{.spec.providerID}' | sed 's|.*/||')
-          NODE_PROFILE=$(aws ec2 describe-instances --instance-ids "$NODE_INSTANCE_ID" --query 'Reservations[0].Instances[0].IamInstanceProfile.Arn' --output text 2>/dev/null || echo "unknown")
+          NODE_NAME=$(kubectl get nodes --no-headers -o custom-columns=NAME:.metadata.name | grep -v taint | head -1 2>/dev/null || kubectl get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1)
+          NODE_INSTANCE_ID=$(kubectl get node "$NODE_NAME" -o jsonpath='{.spec.providerID}' 2>/dev/null | sed 's|.*/||' || echo "unknown")
+          NODE_PROFILE=$(aws ec2 describe-instances --instance-ids "$NODE_INSTANCE_ID" --query 'Reservations[0].Instances[0].IamInstanceProfile.Arn' --output text 2>/dev/null || echo "unknown — add ec2:DescribeInstances to github-actions-ecr role")
           echo "Worker node: $NODE_NAME ($NODE_INSTANCE_ID)"
           echo "IAM Instance Profile: $NODE_PROFILE"
 
           echo "=== EXISTING AWS LOAD BALANCERS ==="
-          aws elb describe-load-balancers --query 'LoadBalancerDescriptions[*].[LoadBalancerName,DNSName,VPCId]' --output table 2>/dev/null || echo "No classic ELBs found"
-          aws elbv2 describe-load-balancers --query 'LoadBalancers[*].[LoadBalancerName,DNSName,State.Code]' --output table 2>/dev/null || echo "No ALB/NLBs found"
+          aws elb describe-load-balancers --query 'LoadBalancerDescriptions[*].[LoadBalancerName,DNSName,VPCId]' --output table 2>/dev/null || echo "No classic ELBs found (or no elasticloadbalancing:Describe permission)"
+          aws elbv2 describe-load-balancers --query 'LoadBalancers[*].[LoadBalancerName,DNSName,State.Code]' --output table 2>/dev/null || echo "No ALB/NLBs found (or no elasticloadbalancing:Describe permission)"
 
           if [ -n "$LB_HOSTNAME" ]; then
             echo "═══════════════════════════════════════════════════════════════"
