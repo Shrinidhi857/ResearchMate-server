@@ -181,16 +181,19 @@ jobs:
           envsubst < k8s/02-secret.yaml | kubectl apply -f -
           envsubst < k8s/03-serviceaccount-irsa.yaml | kubectl apply -f -
 
-          # 4. Apply Redis, API Deployment, Service, HPA, and Ingress
+          # 4. Clean up any stale crashed pods from prior failed rollouts to free memory
+          kubectl delete pods -n researchmate -l app=researchmate-api --field-selector=status.phase!=Running 2>/dev/null || true
+
+          # 5. Apply Redis, API Deployment, Service, HPA, and Ingress
           kubectl apply -f k8s/04-redis.yaml
           envsubst < k8s/05-api-deployment.yaml | kubectl apply -f -
           kubectl apply -f k8s/06-api-service.yaml
           kubectl apply -f k8s/07-hpa.yaml
           kubectl apply -f k8s/08-ingress.yaml
 
-          # 5. Wait for zero-downtime rolling update to succeed
+          # 6. Wait for rolling update to succeed (up to 300s to allow startupProbe to pass)
           echo "Waiting for deployment rollout to finish..."
-          if ! kubectl rollout status deployment/researchmate-api -n researchmate --timeout=180s; then
+          if ! kubectl rollout status deployment/researchmate-api -n researchmate --timeout=300s; then
             echo "❌ Rollout timed out. Inspecting pod status, events, and logs..."
             echo "=== PODS IN NAMESPACE ==="
             kubectl get pods -n researchmate -o wide
