@@ -88,7 +88,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION || env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -108,59 +108,91 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 4. Deploy to AWS EC2 via SSH
+  # 4. Deploy to Amazon EKS (Kubernetes)
   # ────────────────────────────────────────────────────────────────────────────
-  deploy-to-ec2:
-    name: Deploy to AWS EC2
+  deploy-to-eks:
+    name: Deploy to Amazon EKS
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout Code for Config Sync
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Copy Production Compose and Nginx Configs to EC2
-        uses: appleboy/scp-action@v0.1.7
+      - name: Configure AWS Credentials (OIDC Auth)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "docker-compose.prod.yml,nginx/nginx.conf,scripts/backup.sh"
-          target: "/opt/researchmate"
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || env.AWS_REGION }}
 
-      - name: Execute Deployment Commands on EC2
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Update kubeconfig for Amazon EKS
         env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+        run: |
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "${{ secrets.AWS_REGION || env.AWS_REGION }}"
+
+      - name: Apply Kubernetes Manifests & Rolling Update
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: AWS_REGION,ECR_REPOSITORY,IMAGE_TAG
-          script: |
-            set -e
-            cd /opt/researchmate
+          # AWS Configuration
+          AWS_REGION: ${{ secrets.AWS_REGION || env.AWS_REGION }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+          # App & URLs
+          APP_URL: ${{ secrets.APP_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          # Database & Auth
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          # AI & LLM Models
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          MAX_COMPILATION_ATTEMPTS: ${{ secrets.MAX_COMPILATION_ATTEMPTS }}
+          # LangChain Tracing
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_ENDPOINT: ${{ secrets.LANGCHAIN_ENDPOINT }}
+          LANGCHAIN_TRACING_V2: ${{ secrets.LANGCHAIN_TRACING_V2 }}
+          # SMTP / Email Notifications
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          # 1. Fetch AWS Account ID dynamically from caller identity
+          export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          export ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
 
-            # Authenticate Docker with Amazon ECR using the EC2 Instance Profile (IAM Role)
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
-            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          # 2. Apply core cluster namespace
+          kubectl apply -f k8s/00-namespace.yaml
 
-            # Pull latest application image from ECR
-            export ECR_REGISTRY="$ECR_REGISTRY"
-            export IMAGE_TAG="$IMAGE_TAG"
-            docker compose -f docker-compose.prod.yml pull api
+          # 3. Inject variables and secrets dynamically via envsubst
+          envsubst < k8s/01-configmap.yaml | kubectl apply -f -
+          envsubst < k8s/02-secret.yaml | kubectl apply -f -
+          envsubst < k8s/03-serviceaccount-irsa.yaml | kubectl apply -f -
 
-            # Recreate containers with zero manual downtime
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          # 4. Apply Redis, API Deployment, Service, HPA, and Ingress
+          kubectl apply -f k8s/04-redis.yaml
+          envsubst < k8s/05-api-deployment.yaml | kubectl apply -f -
+          kubectl apply -f k8s/06-api-service.yaml
+          kubectl apply -f k8s/07-hpa.yaml
+          kubectl apply -f k8s/08-ingress.yaml
 
-            # Clean up dangling images to prevent EBS storage exhaustion
-            docker image prune -f
+          # 5. Wait for zero-downtime rolling update to succeed
+          echo "Waiting for deployment rollout to finish..."
+          kubectl rollout status deployment/researchmate-api -n researchmate --timeout=180s
 
-            # Health verification
-            sleep 15
-            curl -f http://127.0.0.1:5000/health || exit 1
-            echo "✅ Deployment succeeded and API is healthy!"
+          echo "✅ Amazon EKS deployment succeeded with zero downtime!"
