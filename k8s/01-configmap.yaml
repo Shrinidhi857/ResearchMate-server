@@ -10,7 +10,7 @@ data:
   FRONTEND_URL: "${FRONTEND_URL}"
   APP_URL: "${APP_URL}"
   REDIS_URL: "redis://redis-service.researchmate.svc.cluster.local:6379/0"
-  UVICORN_WORKERS: "2"
+  UVICORN_WORKERS: "1"
   LOCAL_STORAGE_DIR: "/tmp/documents"
   NUMBA_CACHE_DIR: "/tmp"
   MPLCONFIGDIR: "/tmp"

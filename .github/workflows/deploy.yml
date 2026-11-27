@@ -181,7 +181,9 @@ jobs:
           envsubst < k8s/02-secret.yaml | kubectl apply -f -
           envsubst < k8s/03-serviceaccount-irsa.yaml | kubectl apply -f -
 
-          # 4. Clean up any stale crashed pods from prior failed rollouts to free memory
+          # 4. Clean up any stale or evicted pods from prior failed rollouts to free node memory
+          kubectl delete pods -n researchmate --field-selector=status.phase=Failed 2>/dev/null || true
+          kubectl delete pods -n researchmate --field-selector=status.phase=Pending 2>/dev/null || true
           kubectl delete pods -n researchmate -l app=researchmate-api --field-selector=status.phase!=Running 2>/dev/null || true
 
           # 5. Apply Redis, API Deployment, Service, HPA, and Ingress
