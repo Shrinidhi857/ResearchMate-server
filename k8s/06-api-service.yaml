@@ -6,7 +6,11 @@ metadata:
   labels:
     app: researchmate-api
   annotations:
+    # Use in-tree AWS cloud controller (classic ELB) — compatible with EKS Auto Mode without add-ons
+    service.beta.kubernetes.io/aws-load-balancer-type: "classic"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    # Allow any node in the cluster to receive traffic (single-node friendly)
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
 spec:
   type: LoadBalancer
   ports:
