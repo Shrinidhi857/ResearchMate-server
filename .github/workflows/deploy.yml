@@ -207,3 +207,13 @@ jobs:
           fi
 
           echo "✅ Amazon EKS deployment succeeded with zero downtime!"
+
+          # 7. Print the Public AWS Load Balancer URL
+          echo "Waiting for AWS Load Balancer to assign public hostname..."
+          sleep 10
+          LB_HOSTNAME=$(kubectl get svc researchmate-api-service -n researchmate -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🚀 LIVE SERVER URL: http://${LB_HOSTNAME}"
+          echo "🔍 HEALTH CHECK:    http://${LB_HOSTNAME}/health"
+          echo "📖 API SWAGGER DOCS: http://${LB_HOSTNAME}/docs"
+          echo "═══════════════════════════════════════════════════════════════"
