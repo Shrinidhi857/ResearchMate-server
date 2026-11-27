@@ -208,12 +208,27 @@ jobs:
 
           echo "✅ Amazon EKS deployment succeeded with zero downtime!"
 
-          # 7. Print the Public AWS Load Balancer URL
-          echo "Waiting for AWS Load Balancer to assign public hostname..."
-          sleep 10
-          LB_HOSTNAME=$(kubectl get svc researchmate-api-service -n researchmate -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "🚀 LIVE SERVER URL: http://${LB_HOSTNAME}"
-          echo "🔍 HEALTH CHECK:    http://${LB_HOSTNAME}/health"
-          echo "📖 API SWAGGER DOCS: http://${LB_HOSTNAME}/docs"
-          echo "═══════════════════════════════════════════════════════════════"
+          # 7. Poll and wait for AWS Load Balancer to provision and assign public DNS
+          echo "Waiting for AWS Load Balancer to allocate public hostname..."
+          LB_HOSTNAME=""
+          for i in {1..20}; do
+            LB_HOSTNAME=$(kubectl get svc researchmate-api-service -n researchmate -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -n "$LB_HOSTNAME" ]; then
+              break
+            fi
+            echo "  Waiting for AWS Load Balancer... ($i/20, 10s sleep)"
+            sleep 10
+          done
+
+          echo "=== SERVICE DETAILS & AWS EVENTS ==="
+          kubectl describe svc researchmate-api-service -n researchmate
+
+          if [ -n "$LB_HOSTNAME" ]; then
+            echo "═══════════════════════════════════════════════════════════════"
+            echo "🚀 LIVE SERVER URL: http://${LB_HOSTNAME}"
+            echo "🔍 HEALTH CHECK:    http://${LB_HOSTNAME}/health"
+            echo "📖 API SWAGGER DOCS: http://${LB_HOSTNAME}/docs"
+            echo "═══════════════════════════════════════════════════════════════"
+          else
+            echo "⚠️ AWS is still finalizing the Load Balancer allocation. Check service events above."
+          fi
