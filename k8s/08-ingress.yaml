@@ -4,25 +4,21 @@ metadata:
   name: researchmate-ingress
   namespace: researchmate
   annotations:
-    # ── Option A: For AWS Load Balancer Controller (ALB) ──────────────────────
+    # ── AWS Load Balancer Controller (ALB) ──────────────────────────────────
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: '443'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:ACCOUNT_ID:certificate/YOUR_ACM_CERT_ID
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     # Idle timeout for long-running RAG queries & WebSockets
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
 
-    # ── Option B: For NGINX Ingress Controller (Uncomment if using cert-manager)
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    # nginx.ingress.kubernetes.io/websocket-services: "researchmate-api-service"
+    # ── HTTPS Configuration (Uncomment when ACM certificate & custom domain are ready)
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:${AWS_REGION}:${ACCOUNT_ID}:certificate/YOUR_ACM_CERT_ID"
 spec:
   rules:
-    - host: api.yourdomain.com
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix

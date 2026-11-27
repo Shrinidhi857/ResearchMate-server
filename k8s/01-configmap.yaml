@@ -4,11 +4,19 @@ metadata:
   name: researchmate-config
   namespace: researchmate
 data:
-  # Injected dynamically by GitHub Actions CI/CD via envsubst
+  # Injected dynamically from GitHub Actions Secrets via envsubst
   AWS_REGION: "${AWS_REGION}"
   AWS_S3_BUCKET: "${AWS_S3_BUCKET}"
   FRONTEND_URL: "${FRONTEND_URL}"
+  APP_URL: "${APP_URL}"
   REDIS_URL: "redis://redis-service.researchmate.svc.cluster.local:6379/0"
   UVICORN_WORKERS: "2"
   NUMBA_CACHE_DIR: "/tmp"
   MPLCONFIGDIR: "/tmp"
+  LLM_PROVIDER: "${LLM_PROVIDER}"
+  GEMINI_MODEL: "${GEMINI_MODEL}"
+  MAX_COMPILATION_ATTEMPTS: "${MAX_COMPILATION_ATTEMPTS}"
+  LANGCHAIN_TRACING_V2: "${LANGCHAIN_TRACING_V2}"
+  LANGCHAIN_ENDPOINT: "${LANGCHAIN_ENDPOINT}"
+  SMTP_SERVER: "${SMTP_SERVER}"
+  SMTP_PORT: "${SMTP_PORT}"

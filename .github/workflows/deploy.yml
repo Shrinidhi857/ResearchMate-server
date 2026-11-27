@@ -88,7 +88,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION || env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -124,7 +124,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION || env.AWS_REGION }}
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -135,24 +135,46 @@ jobs:
         env:
           CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
         run: |
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "${{ env.AWS_REGION }}"
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "${{ secrets.AWS_REGION || env.AWS_REGION }}"
 
       - name: Apply Kubernetes Manifests & Rolling Update
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          # AWS Configuration
+          AWS_REGION: ${{ secrets.AWS_REGION || env.AWS_REGION }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+          # App & URLs
+          APP_URL: ${{ secrets.APP_URL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          # Database & Auth
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          # AI & LLM Models
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          MAX_COMPILATION_ATTEMPTS: ${{ secrets.MAX_COMPILATION_ATTEMPTS }}
+          # LangChain Tracing
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_ENDPOINT: ${{ secrets.LANGCHAIN_ENDPOINT }}
+          LANGCHAIN_TRACING_V2: ${{ secrets.LANGCHAIN_TRACING_V2 }}
+          # SMTP / Email Notifications
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           # 1. Fetch AWS Account ID dynamically from caller identity
           export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          export ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
 
           # 2. Apply core cluster namespace
           kubectl apply -f k8s/00-namespace.yaml
@@ -162,19 +184,14 @@ jobs:
           envsubst < k8s/02-secret.yaml | kubectl apply -f -
           envsubst < k8s/03-serviceaccount-irsa.yaml | kubectl apply -f -
 
-          # 4. Apply Redis, Service, HPA, and Ingress
+          # 4. Apply Redis, API Deployment, Service, HPA, and Ingress
           kubectl apply -f k8s/04-redis.yaml
+          envsubst < k8s/05-api-deployment.yaml | kubectl apply -f -
           kubectl apply -f k8s/06-api-service.yaml
           kubectl apply -f k8s/07-hpa.yaml
           kubectl apply -f k8s/08-ingress.yaml
 
-          # 5. Trigger rolling update of API pods with newly pushed commit image
-          ECR_IMAGE="$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
-
-          # Update the container image in the deployment
-          kubectl set image deployment/researchmate-api api="$ECR_IMAGE" -n researchmate --record
-
-          # 6. Wait for zero-downtime rolling update to succeed
+          # 5. Wait for zero-downtime rolling update to succeed
           echo "Waiting for deployment rollout to finish..."
           kubectl rollout status deployment/researchmate-api -n researchmate --timeout=180s
 

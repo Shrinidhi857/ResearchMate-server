@@ -29,7 +29,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: api
-          image: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/researchmate-api:latest
+          image: "${ECR_IMAGE}"
           imagePullPolicy: IfNotPresent
           command: ["bash", "scripts/entrypoint.sh"]
           ports:
